@@ -1,0 +1,398 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xmlns="http://maven.apache.org/POM/4.0.0"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <!--
+        下方 parent 为 ContiNew Starter（Continue New Starter）。
+        ContiNew Starter 基于"约定优于配置"的理念，
+        再次精简常规配置，提供一个更为完整的配置解决方案，帮助开发人员更加快速的集成常用第三方库或工具到 Spring Boot Web 应用程序中。
+        ContiNew Starter 包含了一系列经过企业实践优化的依赖包（如 MyBatis-Plus、SaToken），
+        可轻松集成到应用中，为开发人员减少手动引入依赖及配置的麻烦，为 Spring Boot Web 项目的灵活快速构建提供支持。
+    -->
+    <parent>
+        <groupId>top.continew.starter</groupId>
+        <artifactId>continew-starter</artifactId>
+        <version>2.17.0</version>
+    </parent>
+
+    <groupId>top.continew.admin</groupId>
+    <artifactId>continew-admin</artifactId>
+    <version>${revision}</version>
+    <packaging>pom</packaging>
+
+    <name>${project.artifactId}</name>
+    <description>ContiNew Admin（Continue New Admin）持续迭代优化的前后端分离中后台管理系统框架，开箱即用，持续提供舒适的开发体验。</description>
+    <url>https://github.com/continew-org/continew-admin</url>
+
+    <modules>
+        <module>continew-server</module>
+        <module>continew-system</module>
+        <module>continew-plugin</module>
+        <module>continew-common</module>
+        <module>continew-extension</module>
+    </modules>
+
+    <properties>
+        <!-- 项目版本号 -->
+        <revision>4.2.0</revision>
+    </properties>
+
+    <!-- 全局依赖版本管理 -->
+    <dependencyManagement>
+        <dependencies>
+            <!-- API 模块（存放 Controller 层代码，打包部署的模块） -->
+            <dependency>
+                <groupId>${project.groupId}</groupId>
+                <artifactId>continew-server</artifactId>
+                <version>${revision}</version>
+            </dependency>
+
+            <!-- 系统管理模块（存放系统管理模块相关功能，例如：部门管理、角色管理、用户管理等） -->
+            <dependency>
+                <groupId>${project.groupId}</groupId>
+                <artifactId>continew-system</artifactId>
+                <version>${revision}</version>
+            </dependency>
+
+            <!-- 公共模块（存放公共工具类，公共配置等） -->
+            <dependency>
+                <groupId>${project.groupId}</groupId>
+                <artifactId>continew-common</artifactId>
+                <version>${revision}</version>
+            </dependency>
+
+            <!-- 能力开放插件（后续会改造为独立插件） -->
+            <dependency>
+                <groupId>${project.groupId}</groupId>
+                <artifactId>continew-plugin-open</artifactId>
+                <version>${revision}</version>
+            </dependency>
+
+            <!-- 租户插件（后续会改造为独立插件） -->
+            <dependency>
+                <groupId>${project.groupId}</groupId>
+                <artifactId>continew-plugin-tenant</artifactId>
+                <version>${revision}</version>
+            </dependency>
+
+            <!-- 任务调度插件（后续会改造为独立插件） -->
+            <dependency>
+                <groupId>${project.groupId}</groupId>
+                <artifactId>continew-plugin-schedule</artifactId>
+                <version>${revision}</version>
+            </dependency>
+
+            <!-- 代码生成器插件（后续会改造为独立插件） -->
+            <dependency>
+                <groupId>${project.groupId}</groupId>
+                <artifactId>continew-plugin-generator</artifactId>
+                <version>${revision}</version>
+            </dependency>
+            <dependency>
+                <groupId>${project.groupId}</groupId>
+                <artifactId>continew-plugin-ticket</artifactId>
+                <version>${revision}</version>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
+    <dependencies>
+        <!-- Hutool（小而全的 Java 工具类库，通过静态方法封装，降低相关 API 的学习成本，提高工作效率，使 Java 拥有函数式语言般的优雅，让 Java 语言也可以"甜甜的"） -->
+        <dependency>
+            <groupId>cn.hutool</groupId>
+            <artifactId>hutool-all</artifactId>
+        </dependency>
+
+        <!-- Lombok（在 Java 开发过程中用注解的方式，简化了 JavaBean 的编写，避免了冗余和样板式代码，让编写的类更加简洁） -->
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <optional>true</optional> <!-- 表示依赖不会被传递 -->
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <!-- 编译插件 -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <configuration>
+                    <compilerArgument>-parameters</compilerArgument>
+                </configuration>
+            </plugin>
+            <!-- 单元测试相关插件 -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <excludes>
+                        <!-- 上下文加载测试依赖 MySQL/Redis 等基础设施，本地与 CI 无法常驻，
+                             待引入 Testcontainers 后随集成测试一并启用 -->
+                        <exclude>**/ContiNewAdminApplicationTests.java</exclude>
+                    </excludes>
+                </configuration>
+            </plugin>
+            <!-- 构建环境与依赖卫生检查插件（validate 阶段门禁） -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-enforcer-plugin</artifactId>
+                <dependencies>
+                    <dependency>
+                        <groupId>org.codehaus.mojo</groupId>
+                        <artifactId>extra-enforcer-rules</artifactId>
+                        <version>${extra-enforcer-rules.version}</version>
+                    </dependency>
+                </dependencies>
+                <configuration>
+                    <rules>
+                        <requireMavenVersion>
+                            <version>[3.9,4)</version>
+                            <message>Maven 版本不满足要求：需要 &gt;= 3.9 且 &lt; 4.0（项目锁定 3.9.16；Maven 4 暂未适配），当前为 ${maven.version}。&#10;请改用项目自带的 Maven Wrapper 构建：&#10;· 命令行：Linux/macOS 执行 ./mvnw，Windows 执行 mvnw.cmd&#10;· IntelliJ IDEA：设置内搜索 Maven，将 Maven home path（Maven 主路径）设为 Use Maven wrapper</message>
+                        </requireMavenVersion>
+                        <requireJavaVersion>
+                            <version>[17,)</version>
+                            <message>本项目要求 JDK 17 及以上版本。</message>
+                        </requireJavaVersion>
+                        <banDuplicatePomDependencyVersions/>
+                        <enforceBytecodeVersion>
+                            <maxJdkVersion>17</maxJdkVersion>
+                            <message>依赖中存在高于 Java 17 字节码版本的构件，请勿引入。</message>
+                        </enforceBytecodeVersion>
+                    </rules>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>enforce-environment</id>
+                        <goals>
+                            <goal>enforce</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+            <!-- 代码格式化插件（validate 阶段门禁，版本由父 POM 统一管理） -->
+            <plugin>
+                <groupId>com.diffplug.spotless</groupId>
+                <artifactId>spotless-maven-plugin</artifactId>
+                <configuration>
+                    <java>
+                        <!-- 步骤按声明顺序执行：格式化 → 清理 → 补 License Header；@formatter:off/on 包裹的区间跳过 -->
+                        <toggleOffOn/>
+                        <eclipse>
+                            <file>${maven.multiModuleProjectDirectory}/style/ocn-eclipse-formatter.xml</file>
+                        </eclipse>
+                        <removeUnusedImports/>
+                        <trimTrailingWhitespace/>
+                        <licenseHeader>
+                            <file>${maven.multiModuleProjectDirectory}/style/license-header</file>
+                        </licenseHeader>
+                    </java>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>spotless-check</id>
+                        <phase>validate</phase>
+                        <goals>
+                            <goal>check</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+            <!-- 源码语义规范检查插件（validate 阶段门禁，与 Spotless 格式层零重叠） -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-checkstyle-plugin</artifactId>
+                <dependencies>
+                    <dependency>
+                        <groupId>com.puppycrawl.tools</groupId>
+                        <artifactId>checkstyle</artifactId>
+                        <version>${checkstyle.version}</version>
+                    </dependency>
+                </dependencies>
+                <configuration>
+                    <configLocation>${maven.multiModuleProjectDirectory}/style/ocn-checkstyle.xml</configLocation>
+                    <includeTestSourceDirectory>true</includeTestSourceDirectory>
+                    <inputEncoding>UTF-8</inputEncoding>
+                    <consoleOutput>true</consoleOutput>
+                    <failsOnError>true</failsOnError>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>checkstyle-check</id>
+                        <phase>validate</phase>
+                        <goals>
+                            <goal>check</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+            <!-- 字节码缺陷检查插件（verify 阶段门禁） -->
+            <plugin>
+                <groupId>com.github.spotbugs</groupId>
+                <artifactId>spotbugs-maven-plugin</artifactId>
+                <configuration>
+                    <effort>Max</effort>
+                    <threshold>High</threshold>
+                    <excludeFilterFile>${maven.multiModuleProjectDirectory}/style/ocn-spotbugs-exclude.xml</excludeFilterFile>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>spotbugs-check</id>
+                        <phase>verify</phase>
+                        <goals>
+                            <goal>check</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+            <!-- 统一版本号插件 -->
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>flatten-maven-plugin</artifactId>
+                <configuration>
+                    <updatePomFile>true</updatePomFile>
+                    <flattenMode>resolveCiFriendliesOnly</flattenMode>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>flatten</id>
+                        <phase>process-resources</phase>
+                        <goals>
+                            <goal>flatten</goal>
+                        </goals>
+                    </execution>
+                    <execution>
+                        <id>flatten-clean</id>
+                        <phase>clean</phase>
+                        <goals>
+                            <goal>clean</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+
+    <profiles>
+        <!-- 格式化模式：跳过 validate 阶段的格式与规范门禁（Spotless check、Checkstyle），
+             改为编译前自动修复格式（格式化 → 清理 import → 补 License Header） -->
+        <profile>
+            <id>format</id>
+            <properties>
+                <spotless.check.skip>true</spotless.check.skip>
+                <checkstyle.skip>true</checkstyle.skip>
+            </properties>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>com.diffplug.spotless</groupId>
+                        <artifactId>spotless-maven-plugin</artifactId>
+                        <executions>
+                            <execution>
+                                <id>spotless-apply</id>
+                                <phase>process-sources</phase>
+                                <goals>
+                                    <goal>apply</goal>
+                                </goals>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+        <!-- Sonar 代码质量分析 -->
+        <profile>
+            <id>sonar</id>
+            <properties>
+                <sonar.host.url>https://sonarcloud.io</sonar.host.url>
+                <sonar.organization>continew-org</sonar.organization>
+                <sonar.projectKey>continew-org_continew-admin</sonar.projectKey>
+                <sonar.moduleKey>${project.groupId}:${project.artifactId}</sonar.moduleKey>
+                <!--
+                    Liquibase 变更脚本（DDL/种子数据）不参与代码分析：
+                    1. MySQL/PostgreSQL 方言脚本会被 PL/SQL 分析器误判（如要求 PostgreSQL 使用 Oracle 的 VARCHAR2）；
+                    2. 种子数据中包含开源脚手架公开的默认账号密码哈希，并非真实凭据泄露。
+                -->
+                <sonar.exclusions>**/src/main/resources/db/changelog/**/*.sql</sonar.exclusions>
+                <!-- S3252：项目统一使用 Hutool 门面类 StrUtil/ValidationUtils 调用静态方法，其父类
+                     CharSequenceUtil/Validator 属实现细节，经门面访问是 Hutool 官方推荐用法，故关闭该规则。 -->
+                <sonar.issue.ignore.multicriteria>S3252,S2068-regex</sonar.issue.ignore.multicriteria>
+                <sonar.issue.ignore.multicriteria.S3252.ruleKey>java:S3252</sonar.issue.ignore.multicriteria.S3252.ruleKey>
+                <sonar.issue.ignore.multicriteria.S3252.resourceKey>**/*</sonar.issue.ignore.multicriteria.S3252.resourceKey>
+                <!-- S2068：RegexConstants 中的 PASSWORD 是密码强度校验正则常量，并非硬编码凭据，属误报。 -->
+                <sonar.issue.ignore.multicriteria.S2068-regex.ruleKey>java:S2068</sonar.issue.ignore.multicriteria.S2068-regex.ruleKey>
+                <sonar.issue.ignore.multicriteria.S2068-regex.resourceKey>**/constant/RegexConstants.java</sonar.issue.ignore.multicriteria.S2068-regex.resourceKey>
+            </properties>
+            <activation>
+                <activeByDefault>false</activeByDefault>
+            </activation>
+            <build>
+                <plugins>
+                    <!-- 单元测试覆盖率采集（为 Sonar 分析提供覆盖率数据；版本暂由本项目管理，
+                         待 Starter 父 POM 统一管理 jacoco-maven-plugin 后移除显式版本） -->
+                    <plugin>
+                        <groupId>org.jacoco</groupId>
+                        <artifactId>jacoco-maven-plugin</artifactId>
+                        <version>0.8.13</version>
+                        <executions>
+                            <execution>
+                                <id>jacoco-prepare-agent</id>
+                                <goals>
+                                    <goal>prepare-agent</goal>
+                                </goals>
+                            </execution>
+                            <execution>
+                                <id>jacoco-report</id>
+                                <phase>test</phase>
+                                <goals>
+                                    <goal>report</goal>
+                                </goals>
+                            </execution>
+                        </executions>
+                    </plugin>
+                    <plugin>
+                        <groupId>org.sonarsource.scanner.maven</groupId>
+                        <artifactId>sonar-maven-plugin</artifactId>
+                        <executions>
+                            <execution>
+                                <phase>verify</phase>
+                                <goals>
+                                    <goal>sonar</goal>
+                                </goals>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
+
+    <!-- 依赖仓库配置 -->
+    <repositories>
+        <repository>
+            <id>huawei-mirror</id>
+            <name>HuaweiCloud Mirror</name>
+            <url>https://mirrors.huaweicloud.com/repository/maven/</url>
+        </repository>
+        <repository>
+            <id>ali-mirror</id>
+            <name>AliYun Mirror</name>
+            <url>https://maven.aliyun.com/repository/public/</url>
+        </repository>
+    </repositories>
+
+    <!-- 插件仓库配置 -->
+    <pluginRepositories>
+        <pluginRepository>
+            <id>huawei-mirror</id>
+            <name>HuaweiCloud Mirror</name>
+            <url>https://mirrors.huaweicloud.com/repository/maven/</url>
+        </pluginRepository>
+        <pluginRepository>
+            <id>ali-mirror</id>
+            <name>AliYun Mirror</name>
+            <url>https://maven.aliyun.com/repository/public/</url>
+        </pluginRepository>
+    </pluginRepositories>
+</project>

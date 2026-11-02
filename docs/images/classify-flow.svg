@@ -1,0 +1,79 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 940 760" width="940" height="760" font-family="'Microsoft YaHei','PingFang SC','Hiragino Sans GB',sans-serif">
+  <defs>
+    <marker id="a" markerWidth="10" markerHeight="10" refX="8" refY="4" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L8,4 L0,8 z" fill="#64748b"/>
+    </marker>
+    <marker id="aGreen" markerWidth="10" markerHeight="10" refX="8" refY="4" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L8,4 L0,8 z" fill="#10b981"/>
+    </marker>
+    <marker id="aAmber" markerWidth="10" markerHeight="10" refX="8" refY="4" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L8,4 L0,8 z" fill="#f59e0b"/>
+    </marker>
+  </defs>
+  <rect x="0" y="0" width="940" height="760" fill="#ffffff"/>
+
+  <!-- A 提交 -->
+  <rect x="290" y="24" width="360" height="54" rx="10" fill="#f1f5f9" stroke="#94a3b8" stroke-width="1.5"/>
+  <text x="470" y="57" font-size="13" font-weight="600" fill="#0f172a" text-anchor="middle">POST /ticket/manage　提交工单</text>
+  <line x1="470" y1="78" x2="470" y2="106" stroke="#64748b" stroke-width="1.5" marker-end="url(#a)"/>
+
+  <!-- B 落库 -->
+  <rect x="250" y="108" width="440" height="72" rx="10" fill="#ecfdf5" stroke="#34d399" stroke-width="1.5"/>
+  <text x="470" y="132" font-size="12" font-weight="600" fill="#0f172a" text-anchor="middle">① 校验参数 · 写入 ticket 表（事务内）</text>
+  <text x="470" y="152" font-size="10" fill="#475569" text-anchor="middle">分类字段留空，status 默认「待处理」</text>
+  <text x="470" y="169" font-size="10" fill="#475569" text-anchor="middle">create() 带 @Transactional · 继承 TenantBaseDO 自动带 tenant_id</text>
+  <line x1="470" y1="180" x2="470" y2="210" stroke="#64748b" stroke-width="1.5" marker-end="url(#a)"/>
+
+  <!-- C 异步 -->
+  <rect x="250" y="212" width="440" height="72" rx="10" fill="#ecfdf5" stroke="#34d399" stroke-width="1.5"/>
+  <text x="470" y="236" font-size="12" font-weight="600" fill="#0f172a" text-anchor="middle">② afterCommit 回调提交异步任务</text>
+  <text x="470" y="256" font-size="10" fill="#475569" text-anchor="middle">直接 submit 会在事务提交前查库查不到 —— 这是实测出来的竞态</text>
+  <text x="470" y="273" font-size="10" fill="#475569" text-anchor="middle">接口此时已返回（毫秒级），不等模型</text>
+  <line x1="470" y1="284" x2="470" y2="314" stroke="#64748b" stroke-width="1.5" marker-end="url(#a)"/>
+
+  <!-- D 线程池 -->
+  <rect x="250" y="316" width="440" height="72" rx="10" fill="#ecfdf5" stroke="#34d399" stroke-width="1.5"/>
+  <text x="470" y="340" font-size="12" font-weight="600" fill="#0f172a" text-anchor="middle">③ ticket-classify 线程池领取任务</text>
+  <text x="470" y="360" font-size="10" fill="#475569" text-anchor="middle">核心 2 / 最大 4 / 队列 200 · 队列满由提交线程自己跑（不丢任务）</text>
+  <text x="470" y="377" font-size="10" fill="#475569" text-anchor="middle">线程池由类内部持有，不注册成 Bean（会顶掉 Boot 默认的 applicationTaskExecutor）</text>
+  <line x1="470" y1="388" x2="470" y2="418" stroke="#64748b" stroke-width="1.5" marker-end="url(#a)"/>
+
+  <!-- E 模型 -->
+  <rect x="250" y="420" width="440" height="72" rx="10" fill="#ede9fe" stroke="#8b5cf6" stroke-width="1.5"/>
+  <text x="470" y="444" font-size="12" font-weight="600" fill="#0f172a" text-anchor="middle">④ 调 DeepSeek 判定分类与优先级</text>
+  <text x="470" y="464" font-size="10" fill="#475569" text-anchor="middle">提示词写死六个候选枚举 + 一个示例输出 · 正文截断 1500 字控成本</text>
+  <text x="470" y="481" font-size="10" fill="#475569" text-anchor="middle">要求只返回 {category, priority, reason}</text>
+
+  <!-- 分支线 -->
+  <line x1="470" y1="492" x2="470" y2="510" stroke="#64748b" stroke-width="1.5"/>
+  <line x1="210" y1="510" x2="730" y2="510" stroke="#64748b" stroke-width="1.5"/>
+  <line x1="210" y1="510" x2="210" y2="536" stroke="#10b981" stroke-width="1.5" marker-end="url(#aGreen)"/>
+  <line x1="730" y1="510" x2="730" y2="536" stroke="#f59e0b" stroke-width="1.5" marker-end="url(#aAmber)"/>
+  <text x="222" y="528" font-size="10" font-weight="600" fill="#059669">成功</text>
+  <text x="714" y="528" font-size="10" font-weight="600" fill="#d97706" text-anchor="end">失败 / 超时 / 无密钥</text>
+
+  <!-- F 左：模型路径 -->
+  <rect x="60" y="538" width="300" height="86" rx="10" fill="#f0fdf4" stroke="#10b981" stroke-width="1.5"/>
+  <text x="210" y="562" font-size="11.5" font-weight="600" fill="#0f172a" text-anchor="middle">截取首个 { 至末个 } 再反序列化</text>
+  <text x="210" y="581" font-size="10" fill="#475569" text-anchor="middle">兼容模型偶尔返回 markdown 代码块</text>
+  <text x="210" y="599" font-size="10" fill="#475569" text-anchor="middle">分类越界 → other，优先级非法 → 中</text>
+  <text x="210" y="616" font-size="10" fill="#475569" text-anchor="middle">fallback = false</text>
+
+  <!-- F 右：兜底路径 -->
+  <rect x="580" y="538" width="300" height="86" rx="10" fill="#fffbeb" stroke="#f59e0b" stroke-width="1.5"/>
+  <text x="730" y="562" font-size="11.5" font-weight="600" fill="#0f172a" text-anchor="middle">关键词规则判定</text>
+  <text x="730" y="581" font-size="10" fill="#475569" text-anchor="middle">登录/密码 → 账号 · 报错/500 → 故障</text>
+  <text x="730" y="599" font-size="10" fill="#475569" text-anchor="middle">生产/全员/宕机 → 高优先级</text>
+  <text x="730" y="616" font-size="10" fill="#475569" text-anchor="middle">fallback = true，理由写明降级原因</text>
+
+  <!-- 汇总 -->
+  <line x1="210" y1="624" x2="210" y2="648" stroke="#64748b" stroke-width="1.5"/>
+  <line x1="730" y1="624" x2="730" y2="648" stroke="#64748b" stroke-width="1.5"/>
+  <line x1="210" y1="648" x2="730" y2="648" stroke="#64748b" stroke-width="1.5"/>
+  <line x1="470" y1="648" x2="470" y2="670" stroke="#64748b" stroke-width="1.5" marker-end="url(#a)"/>
+
+  <!-- G 写回 -->
+  <rect x="230" y="672" width="480" height="66" rx="10" fill="#ecfdf5" stroke="#34d399" stroke-width="1.5"/>
+  <text x="470" y="696" font-size="12" font-weight="600" fill="#0f172a" text-anchor="middle">⑤ 写回 category / priority / aiReason / aiFallback / aiCostMs</text>
+  <text x="470" y="716" font-size="10" fill="#475569" text-anchor="middle">前端 2 秒后自动刷新一次；统计接口输出兜底率与平均耗时，兜底率 &gt; 30% 标红</text>
+</svg>

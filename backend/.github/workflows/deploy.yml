@@ -1,0 +1,52 @@
+name: Deploy Server
+
+on:
+  # 推送时执行
+  push:
+    branches: [dev]
+  # 可手动执行
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# 部署不可中途取消（避免容器重建被打断），连续触发时排队执行
+concurrency:
+  group: deploy-server
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy server
+    runs-on: self-hosted
+    timeout-minutes: 30
+    steps:
+      # 1、检出源码
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # 2、打包（容器内构建：mvnw/pom 插件/注解处理器等构建期代码不触达宿主机，
+      #    不挂 docker.sock、不注入 job secrets；/root/.m2 挂载复用依赖缓存）
+      - name: Build
+        run: >
+          docker run --rm
+          --memory=6g --cpus=4
+          -v "$PWD":/ws -v /root/.m2:/root/.m2 -w /ws
+          maven:3.9-eclipse-temurin-17
+          ./mvnw -B package
+      # 3、同步到服务器部署目录（runner 与部署机同机，本地 rsync 即可）
+      #    lib/ 与 bin/ 为纯构建产物，用 --delete 清理升级后遗留的旧依赖/旧 jar，
+      #    防止宿主 lib/ 堆积导致 classpath 多版本共存（如 snail-job 三代同存）；
+      #    config/ 来自构建产物普通同步；Dockerfile 不属于构建产物（在仓库 docker/ 下），
+      #    单独从源码同步，保证 docker-compose --build 的构建上下文完整且不依赖历史遗留。
+      - name: Copy
+        run: |
+          rsync -a --delete continew-server/target/app/lib/ ${{ secrets.SERVER_PATH }}/continew-admin/lib/
+          rsync -a --delete continew-server/target/app/bin/ ${{ secrets.SERVER_PATH }}/continew-admin/bin/
+          rsync -a continew-server/target/app/config/ ${{ secrets.SERVER_PATH }}/continew-admin/config/
+          rsync -a docker/continew-admin/Dockerfile ${{ secrets.SERVER_PATH }}/continew-admin/Dockerfile
+      # 5、启动
+      - name: Start
+        run: |
+          cd ${{ secrets.SERVER_PATH }}
+          docker-compose up --force-recreate --build -d continew-server
+          docker images | grep none | awk '{print $3}' | xargs -r docker rmi

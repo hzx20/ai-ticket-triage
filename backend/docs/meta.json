@@ -1,0 +1,21 @@
+{
+  "title": "ContiNew Admin",
+  "description": "多租户中后台管理系统框架",
+  "icon": "LayoutDashboard",
+  "root": true,
+  "pages": [
+    "---介绍---",
+    "index",
+    "introduction",
+    "why-choose-us",
+    "configuration",
+    "...guide",
+    "reference/deployment",
+    "---开发指南---",
+    "...development",
+    "---功能手册---",
+    "...manual",
+    "---参考---",
+    "...reference"
+  ]
+}

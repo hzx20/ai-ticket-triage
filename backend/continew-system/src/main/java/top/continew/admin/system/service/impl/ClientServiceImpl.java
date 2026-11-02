@@ -1,0 +1,114 @@
+/*
+ * Copyright (c) 2022-present Charles7c Authors. All Rights Reserved.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package top.continew.admin.system.service.impl;
+
+import cn.hutool.core.bean.BeanUtil;
+import cn.hutool.core.codec.Base64;
+import cn.hutool.core.util.IdUtil;
+import cn.hutool.crypto.SecureUtil;
+import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import top.continew.admin.auth.adapter.ClientPolicyLockTargetResolver;
+import top.continew.admin.auth.model.query.OnlineUserQuery;
+import top.continew.admin.auth.service.OnlineUserService;
+import top.continew.admin.common.base.service.BaseServiceImpl;
+import top.continew.admin.system.mapper.ClientMapper;
+import top.continew.admin.system.model.entity.ClientDO;
+import top.continew.admin.system.model.query.ClientQuery;
+import top.continew.admin.system.model.req.ClientReq;
+import top.continew.admin.system.model.resp.ClientResp;
+import top.continew.admin.system.service.ClientService;
+import top.continew.starter.auth.refresh.token.api.AuthPolicyWriteLocked;
+import top.continew.starter.auth.refresh.token.service.SessionInvalidationService;
+import top.continew.starter.core.constant.StringConstants;
+import top.continew.starter.core.util.validation.CheckUtils;
+
+import java.util.ArrayList;
+import java.util.List;
+
+/**
+ * 客户端业务实现
+ *
+ * @author KAI
+ * @author Charles7c
+ * @since 3.5.0
+ */
+@Service
+@RequiredArgsConstructor
+public class ClientServiceImpl
+    extends BaseServiceImpl<ClientMapper, ClientDO, ClientResp, ClientResp, ClientQuery, ClientReq>
+    implements ClientService {
+
+    private final OnlineUserService onlineUserService;
+    private final SessionInvalidationService sessionInvalidationService;
+
+    @Override
+    public void beforeCreate(ClientReq req) {
+        req.setClientId(SecureUtil.md5(Base64.encode(IdUtil.fastSimpleUUID())
+            .replace(StringConstants.SLASH, StringConstants.EMPTY)
+            .replace(StringConstants.PLUS, StringConstants.EMPTY)));
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    @AuthPolicyWriteLocked(ClientPolicyLockTargetResolver.class)
+    public void update(ClientReq req, Long id) {
+        super.update(req, id);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    @AuthPolicyWriteLocked(ClientPolicyLockTargetResolver.class)
+    public void delete(List<Long> ids) {
+        super.delete(ids);
+    }
+
+    @Override
+    public void beforeDelete(List<Long> ids) {
+        // 如果还存在在线用户，则不能删除
+        OnlineUserQuery query = new OnlineUserQuery();
+        List<String> clientIds = new ArrayList<>(ids.size());
+        for (Long id : ids) {
+            ClientDO client = this.getById(id);
+            query.setClientId(client.getClientId());
+            CheckUtils.throwIfNotEmpty(onlineUserService.list(query), "客户端 [{}] 还存在在线用户，不允许删除",
+                client.getClientId());
+            clientIds.add(client.getClientId());
+        }
+        // 所有客户端都通过在线校验后，再统一撤销长期会话，避免部分撤销后删除失败。
+        for (String clientId : clientIds) {
+            sessionInvalidationService.invalidateClient(clientId);
+        }
+    }
+
+    @Override
+    public void afterUpdate(ClientReq req, ClientDO entity) {
+        // 客户端配置全部属于认证策略。传输模式、有效期、并发规则或状态发生修改后，
+        // 旧 Session 不能继续按历史策略运行，统一要求重新登录。
+        sessionInvalidationService.invalidateClient(entity.getClientId());
+    }
+
+    @Override
+    public ClientResp getByClientId(String clientId) {
+        return baseMapper.lambdaQuery()
+            .eq(ClientDO::getClientId, clientId)
+            .oneOpt()
+            .map(client -> BeanUtil.copyProperties(client, ClientResp.class))
+            .orElse(null);
+    }
+}

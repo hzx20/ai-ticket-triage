@@ -1,0 +1,131 @@
+/*
+ * Copyright (c) 2022-present Charles7c Authors. All Rights Reserved.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package top.continew.admin.auth.controller;
+
+import cn.dev33.satoken.annotation.SaIgnore;
+import cn.dev33.satoken.stp.StpUtil;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.enums.ParameterIn;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.validation.annotation.Validated;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+import top.continew.admin.auth.model.req.RefreshTokenReq;
+import top.continew.admin.auth.model.resp.LoginResp;
+import top.continew.starter.auth.refresh.token.exception.RefreshTokenException;
+import top.continew.starter.auth.refresh.token.model.RefreshIssueResult;
+import top.continew.starter.auth.refresh.token.service.RefreshAccessTokenIssuer;
+import top.continew.starter.auth.refresh.token.service.RefreshTokenService;
+import top.continew.starter.extension.tenant.annotation.TenantIgnore;
+import top.continew.starter.log.annotation.Log;
+import top.continew.starter.log.enums.Include;
+
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import jakarta.validation.Valid;
+
+/**
+ * Refresh Token 会话 API
+ *
+ * @author Charles7c
+ * @since 4.2.0
+ */
+@Tag(name = "认证会话 API")
+@Log(module = "认证会话")
+@Validated
+@RestController
+@RequiredArgsConstructor
+@Slf4j
+@RequestMapping("/auth")
+public class SessionController {
+
+    private final RefreshAccessTokenIssuer refreshAccessTokenIssuer;
+    private final RefreshTokenService refreshTokenService;
+
+    /**
+     * 使用 Refresh Token 轮换 Access Token
+     *
+     * @param req      刷新令牌请求参数，可为空
+     * @param request  请求对象
+     * @param response 响应对象
+     * @return 登录响应参数
+     */
+    @SaIgnore
+    @TenantIgnore
+    @Operation(summary = "刷新令牌", description = "使用 Refresh Token 轮换 Access Token")
+    @Log(excludes = {Include.REQUEST_HEADERS, Include.REQUEST_BODY, Include.RESPONSE_HEADERS,
+        Include.RESPONSE_BODY})
+    @PostMapping("/refresh")
+    public LoginResp refresh(@RequestBody(required = false) @Valid RefreshTokenReq req,
+        HttpServletRequest request, HttpServletResponse response) {
+        // 四步安全钩子（解析 → 限流 → 来源校验 → 原子轮换）由 Starter 的 refresh 模板固化编排
+        RefreshIssueResult result = refreshTokenService.refresh(req == null ? null : req
+            .getRefreshToken(), request, response,
+            session -> refreshAccessTokenIssuer.issue(session,
+                request, response));
+        return LoginResp.builder().accessToken(result.getAccessToken())
+            .tokenType(result.getTokenType()).expiresIn(result.getExpiresIn())
+            .refreshExpiresIn(result.getRefreshExpiresIn()).refreshToken(result.getRefreshToken())
+            .tenantId(result.getTenantId()).build();
+    }
+
+    /**
+     * 注销当前认证会话
+     *
+     * @param req      注销请求参数，可为空
+     * @param request  请求对象
+     * @param response 响应对象
+     * @return 被注销会话的登录用户 ID
+     */
+    @SaIgnore
+    @TenantIgnore
+    @Operation(summary = "登出", description = "注销用户的当前登录")
+    @Log(excludes = {Include.REQUEST_HEADERS, Include.REQUEST_BODY, Include.RESPONSE_HEADERS})
+    @Parameter(name = "Authorization", description = "令牌", required = true,
+        example = "Bearer xxxx-xxxx-xxxx-xxxx", in = ParameterIn.HEADER)
+    @PostMapping("/logout")
+    public Object logout(@RequestBody(required = false) RefreshTokenReq req,
+        HttpServletRequest request, HttpServletResponse response) {
+        Object loginId = StpUtil.getLoginId(-1L);
+        String accessToken = StpUtil.getTokenValue();
+        refreshTokenService.validateCookieOrigin(request);
+        String refreshToken;
+        try {
+            refreshToken = refreshTokenService.resolve(req == null ? null : req.getRefreshToken(),
+                request);
+            refreshTokenService.validateRequest(refreshToken, request);
+        } catch (RefreshTokenException e) {
+            refreshTokenService.clearCookie(response);
+            throw e;
+        }
+        refreshTokenService.revokeCurrent(accessToken, refreshToken);
+        try {
+            if (accessToken != null) {
+                StpUtil.logoutByTokenValue(accessToken);
+            }
+        } catch (Exception e) {
+            log.debug("当前 Access Token 已无需注销", e);
+        }
+        refreshTokenService.clearCookie(response);
+        return loginId;
+    }
+}

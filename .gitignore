@@ -1,0 +1,21 @@
+# 忽略构建产物与本地数据
+target/
+dist/
+dist_prev/
+dist_prev2/
+node_modules/
+.flattened-pom.xml
+dev.log
+*.log
+
+# 本地与生产密钥
+.env
+.env.local
+data/
+*.tgz
+
+# IDE
+.idea/
+.vscode/
+*.iml
+.DS_Store

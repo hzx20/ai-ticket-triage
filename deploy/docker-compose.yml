@@ -1,0 +1,125 @@
+name: continew
+
+services:
+  mysql:
+    image: mysql:8.0.42
+    container_name: continew-mysql
+    restart: always
+    logging:
+      driver: json-file
+      options: { max-size: "20m", max-file: "3" }
+    environment:
+      TZ: Asia/Shanghai
+      MYSQL_ROOT_PASSWORD: ${DB_PWD}
+      MYSQL_DATABASE: continew_admin
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_general_ci
+      - --explicit_defaults_for_timestamp=true
+      - --lower_case_table_names=1
+      # 3.7G 内存的机器，把 buffer pool 压到 128M，避免和 JVM 抢内存
+      - --innodb-buffer-pool-size=128M
+      - --max-connections=100
+    volumes:
+      - ./data/mysql:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-p${DB_PWD}"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
+
+  redis:
+    image: redis:7.2.8
+    container_name: continew-redis
+    restart: always
+    logging:
+      driver: json-file
+      options: { max-size: "20m", max-file: "3" }
+    environment:
+      TZ: Asia/Shanghai
+    command: ["redis-server", "--requirepass", "${REDIS_PWD}", "--appendonly", "yes", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru"]
+    volumes:
+      - ./data/redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PWD}", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+  continew-server:
+    build: ./backend
+    image: continew-server:4.2.0
+    container_name: continew-server
+    restart: always
+    logging:
+      driver: json-file
+      options: { max-size: "20m", max-file: "3" }
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      TZ: Asia/Shanghai
+      PROFILES_ACTIVE: prod
+      DB_HOST: mysql
+      DB_PORT: "3306"
+      DB_USER: root
+      DB_PWD: ${DB_PWD}
+      DB_NAME: continew_admin
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      REDIS_PWD: ${REDIS_PWD}
+      REDIS_DB: "0"
+      ACCESS_TOKEN_JWT_SECRET: ${ACCESS_TOKEN_JWT_SECRET}
+      REFRESH_TOKEN_SECRET: ${REFRESH_TOKEN_SECRET}
+      # DeepSeek 密钥，不配也能启动，只是工单分类会降级为关键词规则
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-sk-not-configured}
+      FIELD_ENCRYPT_PASSWORD: ${FIELD_ENCRYPT_PASSWORD}
+      FIELD_ENCRYPT_PUBLIC_KEY: ${FIELD_ENCRYPT_PUBLIC_KEY}
+      FIELD_ENCRYPT_PRIVATE_KEY: ${FIELD_ENCRYPT_PRIVATE_KEY}
+      # 未部署 Snail Job 调度中心，下面是占位值，避免占位符解析失败
+      SCHEDULE_PASSWORD: "not-deployed"
+      SCHEDULE_TOKEN: "not-deployed"
+      SCHEDULE_NAMESPACE: "764d604ec6fc45f68cd92514c40e9e1a"
+      SCHEDULE_GROUP: "continew-admin"
+      # 必须开启：application-prod.yml 里默认是 false，
+      # 但 SocialLoginHandler 构造器强制依赖 AuthRequestFactory Bean，
+      # 关掉会导致 "No qualifying bean of type AuthRequestFactory" 启动失败。
+      # 没有配置任何平台 client-id，所以第三方登录按钮点了没反应，不影响账号密码登录。
+      JUSTAUTH_ENABLED: "true"
+    volumes:
+      - ./data/file:/app/data/file
+      - ./data/logs:/app/logs
+    expose:
+      - "18000"
+    # 这几个是纯 HTTP 部署必须的显式降级，逐条说明：
+    # application.url             —— 跨域与 Cookie 来源白名单，默认写的是官方域名
+    # cookie-secure=false         —— 没有 HTTPS 证书，Secure Cookie 会被浏览器丢弃，登录会立刻掉线
+    # cookie-name=refresh_token   —— __Host- 前缀按规范强制要求 Secure，此处必须去掉前缀
+    # snail-job.enabled=false     —— 没部署调度中心，关掉避免无谓的重连报错
+    command:
+      - "--application.url=${PUBLIC_URL}"
+      - "--continew-starter.refresh-token.cookie-secure=false"
+      - "--continew-starter.refresh-token.cookie-name=refresh_token"
+      - "--snail-job.enabled=false"
+
+  continew-web:
+    image: nginx:1.27.0
+    container_name: continew-web
+    restart: always
+    logging:
+      driver: json-file
+      options: { max-size: "20m", max-file: "3" }
+    depends_on:
+      - continew-server
+    ports:
+      - "80:80"
+    volumes:
+      - ./web:/usr/share/nginx/html:ro
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./data/nginx-logs:/var/log/nginx
+    environment:
+      TZ: Asia/Shanghai

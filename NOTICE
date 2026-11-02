@@ -1,0 +1,22 @@
+AI 工单管理系统
+Copyright 2026 hzx20
+
+本项目的后台管理底座来自 ContiNew Admin（https://github.com/continew-org/continew-admin）
+与其前端 continew-admin-ui（https://github.com/continew-org/continew-admin-ui），
+二者均以 Apache License 2.0 授权，版权归 Charles7c 及贡献者所有。
+
+在此基础上新增的部分（按 Apache License 2.0 第 4 条声明）：
+
+- backend/continew-plugin/continew-plugin-ticket/   AI 工单插件（分类器、异步任务、Controller、实体与建表脚本）
+- backend/continew-server/src/main/resources/db/changelog/mysql/plugin/plugin_ticket.sql
+- frontend/src/views/ticket/、frontend/src/apis/ticket/   工单管理页面与接口封装
+- deploy/                                          生产部署编排、nginx 配置、部署与冒烟脚本
+- docs/                                            架构图与接口文档
+
+原项目文件保留其原始版权声明，未作删改。修改过的文件清单：
+backend/pom.xml、backend/continew-plugin/pom.xml、backend/continew-server/pom.xml、
+backend/continew-server/src/main/resources/config/application.yml、
+backend/continew-server/src/main/resources/db/changelog/db.changelog-master.yaml、
+frontend/src/utils/encrypt.ts、frontend/.env.production。
+
+完整许可证文本见 LICENSE。

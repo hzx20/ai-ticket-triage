@@ -1,0 +1,90 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 980 640" width="980" height="640" font-family="'Microsoft YaHei','PingFang SC','Hiragino Sans GB',sans-serif">
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="4" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L8,4 L0,8 z" fill="#64748b"/>
+    </marker>
+    <marker id="arrowDash" markerWidth="10" markerHeight="10" refX="8" refY="4" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L8,4 L0,8 z" fill="#8b5cf6"/>
+    </marker>
+  </defs>
+
+  <rect x="0" y="0" width="980" height="640" fill="#ffffff"/>
+
+  <!-- Docker 边界 -->
+  <rect x="230" y="118" width="528" height="490" rx="14" fill="#fbfdff" stroke="#cbd5e1" stroke-width="1.5" stroke-dasharray="7 5"/>
+  <text x="246" y="596" font-size="11" fill="#64748b">Docker Compose · 单机 4 容器 · 腾讯云轻量 2C4G / Ubuntu 24.04</text>
+
+  <!-- 浏览器 -->
+  <rect x="390" y="34" width="200" height="66" rx="10" fill="#f1f5f9" stroke="#94a3b8" stroke-width="1.5"/>
+  <text x="490" y="62" font-size="14" font-weight="600" fill="#0f172a" text-anchor="middle">浏览器</text>
+  <text x="490" y="82" font-size="10.5" fill="#475569" text-anchor="middle">Vue 3 + Element Plus</text>
+
+  <!-- 浏览器 → nginx -->
+  <line x1="490" y1="100" x2="490" y2="150" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <text x="500" y="130" font-size="10.5" fill="#0369a1">HTTP :80</text>
+
+  <!-- nginx -->
+  <rect x="350" y="152" width="280" height="76" rx="10" fill="#e0f2fe" stroke="#38bdf8" stroke-width="1.5"/>
+  <text x="490" y="178" font-size="13" font-weight="600" fill="#0f172a" text-anchor="middle">nginx 1.27 · continew-web</text>
+  <text x="490" y="198" font-size="10.5" fill="#475569" text-anchor="middle">静态资源 ／ 反向代理 /api（剥前缀）</text>
+  <text x="490" y="215" font-size="10.5" fill="#475569" text-anchor="middle">／ 代理 /websocket（带 Upgrade 头）</text>
+
+  <!-- nginx → server -->
+  <line x1="490" y1="228" x2="490" y2="268" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <text x="500" y="253" font-size="10.5" fill="#0369a1">Docker 内部网络 :18000</text>
+
+  <!-- Spring Boot 容器 -->
+  <rect x="250" y="270" width="480" height="176" rx="12" fill="#ecfdf5" stroke="#34d399" stroke-width="1.8"/>
+  <text x="268" y="294" font-size="13" font-weight="600" fill="#0f172a">continew-server · Spring Boot 3.5 / JDK 17</text>
+
+  <!-- 三个内部组件 -->
+  <rect x="266" y="306" width="140" height="52" rx="8" fill="#ffffff" stroke="#6ee7b7" stroke-width="1.2"/>
+  <text x="336" y="327" font-size="10.5" font-weight="600" fill="#0f172a" text-anchor="middle">Sa-Token 鉴权</text>
+  <text x="336" y="345" font-size="9.5" fill="#475569" text-anchor="middle">行级多租户隔离</text>
+
+  <rect x="420" y="306" width="140" height="52" rx="8" fill="#ffffff" stroke="#6ee7b7" stroke-width="1.2"/>
+  <text x="490" y="327" font-size="10.5" font-weight="600" fill="#0f172a" text-anchor="middle">TicketService</text>
+  <text x="490" y="345" font-size="9.5" fill="#475569" text-anchor="middle">事务 + afterCommit</text>
+
+  <rect x="574" y="306" width="140" height="52" rx="8" fill="#ffffff" stroke="#6ee7b7" stroke-width="1.2"/>
+  <text x="644" y="327" font-size="10.5" font-weight="600" fill="#0f172a" text-anchor="middle">分类线程池</text>
+  <text x="644" y="345" font-size="9.5" fill="#475569" text-anchor="middle">2 / 4 / 200</text>
+
+  <!-- 组件间箭头 -->
+  <line x1="406" y1="332" x2="418" y2="332" stroke="#64748b" stroke-width="1.4" marker-end="url(#arrow)"/>
+  <line x1="560" y1="332" x2="572" y2="332" stroke="#64748b" stroke-width="1.4" marker-end="url(#arrow)"/>
+
+  <text x="268" y="382" font-size="10" fill="#475569">执行体：TicketClassifier（提示词 → JSON 解析 → 越界值降级）</text>
+  <text x="268" y="400" font-size="10" fill="#475569">兜底：模型超时 / 异常 / 无密钥 / 格式异常 → 关键词规则，工单照常入库</text>
+  <text x="268" y="418" font-size="10" fill="#475569">持久层：MyBatis-Plus · Liquibase 版本化建表 · 逻辑删除</text>
+
+  <!-- Spring → MySQL -->
+  <line x1="380" y1="446" x2="380" y2="496" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <!-- Spring → Redis -->
+  <line x1="600" y1="446" x2="600" y2="496" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <!-- MySQL -->
+  <rect x="290" y="498" width="180" height="76" rx="10" fill="#fef3c7" stroke="#f59e0b" stroke-width="1.5"/>
+  <text x="380" y="524" font-size="12.5" font-weight="600" fill="#0f172a" text-anchor="middle">MySQL 8.0</text>
+  <text x="380" y="543" font-size="10" fill="#475569" text-anchor="middle">ticket 表 · 数据卷持久化</text>
+  <text x="380" y="560" font-size="10" fill="#475569" text-anchor="middle">不对外暴露端口</text>
+
+  <!-- Redis -->
+  <rect x="510" y="498" width="180" height="76" rx="10" fill="#fef3c7" stroke="#f59e0b" stroke-width="1.5"/>
+  <text x="600" y="524" font-size="12.5" font-weight="600" fill="#0f172a" text-anchor="middle">Redis 7.2</text>
+  <text x="600" y="543" font-size="10" fill="#475569" text-anchor="middle">会话 · 验证码 · 限流</text>
+  <text x="600" y="560" font-size="10" fill="#475569" text-anchor="middle">不对外暴露端口</text>
+
+  <!-- DeepSeek -->
+  <rect x="812" y="322" width="156" height="82" rx="10" fill="#ede9fe" stroke="#8b5cf6" stroke-width="1.5" stroke-dasharray="6 4"/>
+  <text x="890" y="348" font-size="12" font-weight="600" fill="#0f172a" text-anchor="middle">DeepSeek Chat API</text>
+  <text x="890" y="367" font-size="10" fill="#475569" text-anchor="middle">外部依赖 · 可选</text>
+  <text x="890" y="384" font-size="10" fill="#475569" text-anchor="middle">不可用即降级</text>
+
+  <!-- Spring ↔ DeepSeek -->
+  <line x1="734" y1="358" x2="808" y2="358" stroke="#8b5cf6" stroke-width="1.5" stroke-dasharray="6 4" marker-end="url(#arrowDash)"/>
+  <text x="740" y="350" font-size="9" fill="#7c3aed">HTTPS</text>
+
+  <!-- 说明 -->
+  <text x="246" y="622" font-size="10" fill="#64748b">只有 nginx 暴露 80 端口；后端、数据库、缓存均在 Docker 内部网络，Host 上无监听</text>
+</svg>
