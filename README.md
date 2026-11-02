@@ -10,7 +10,10 @@
 
 线上地址：**http://134.175.137.18** 　账号密码不在公开仓库写明，避免被扫描器批量尝试；需要体验可来信索要，或按下方 [本地运行](#本地运行) 自行起一套。
 
-![部署架构](./docs/images/architecture.svg)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="./docs/images/architecture-dark.svg">
+  <img src="./docs/images/architecture.svg" alt="部署架构：浏览器 → nginx → Spring Boot（含分类线程池）→ MySQL/Redis，外部依赖 DeepSeek">
+</picture>
 
 ---
 
@@ -28,7 +31,10 @@
 
 ## 核心链路
 
-![分类链路](./docs/images/classify-flow.svg)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="./docs/images/classify-flow-dark.svg">
+  <img src="./docs/images/classify-flow.svg" alt="分类链路：提交落库 → afterCommit 异步 → 线程池 → 模型判定，失败降级为关键词规则">
+</picture>
 
 关键点是**提交接口不等模型**。落库并提交事务之后，用 `afterCommit` 回调把分类任务丢进线程池，接口毫秒级返回；模型跑完再把 `category` / `priority` / `aiReason` / `aiCostMs` 写回同一行记录。
 
