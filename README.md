@@ -169,9 +169,13 @@ cat 部署说明.md      # 密钥清单、运维命令、三个必须知道的�
 
 ## 接口文档
 
+在线可直接打开：**http://134.175.137.18/api/doc.html**（Knife4j 界面，需先登录系统）。
+
+仓库里的三个文件用途不同 —— 注意 GitHub 无法渲染 `.html`，`api-reference.html` 点开只会显示源码，**下载到本地双击**才是可交互的手册：
+
 | 文件 | 说明 |
 | --- | --- |
-| [`docs/api/api-reference.html`](./docs/api/api-reference.html) | 离线可交互手册，双击打开即可用，含参数表与可复制的 curl |
+| [`docs/api/api-reference.html`](./docs/api/api-reference.html) | 离线可交互手册，单文件无外部依赖，含参数表与可复制的 curl |
 | [`docs/api/ticket-api.md`](./docs/api/ticket-api.md) | 9 个接口的完整文字说明 |
 | [`docs/api/openapi.json`](./docs/api/openapi.json) | OpenAPI 3.1 规范，服务端真实导出，可导入 Postman / Apifox |
 
