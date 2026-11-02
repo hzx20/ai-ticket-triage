@@ -179,14 +179,16 @@ cat 部署说明.md      # 密钥清单、运维命令、三个必须知道的�
 
 ## 接口文档
 
-在线可直接打开：**http://134.175.137.18/api/doc.html**（nextdoc4j 界面，141 个路径 / 196 个接口操作、200 个数据模型，可按分组浏览，也能直接调一次看返回）。
+**文档站**：https://hzx20.github.io/ai-ticket-triage/ —— 入口页有四份产物的导航，`api/` 直接是交互式接口手册，点开即用，不需要下载。
 
-仓库里还有三个文件，用途不同 —— 注意 GitHub 无法渲染 `.html`，`api-reference.html` 点开只会显示源码，**下载到本地双击**才是可交互的手册：
+**服务端原生文档**：http://134.175.137.18/api/doc.html（nextdoc4j 界面，141 个路径 / 196 个接口操作、200 个数据模型，可按分组浏览，也能直接调一次看返回）。
+
+仓库内的文件，用途各不相同：
 
 | 文件 | 说明 |
 | --- | --- |
-| [`docs/api/api-reference.html`](./docs/api/api-reference.html) | 离线可交互手册，单文件无外部依赖，含参数表与可复制的 curl |
-| [`docs/api/ticket-api.md`](./docs/api/ticket-api.md) | 9 个接口的完整文字说明 |
+| [`docs/api/api-reference.html`](./docs/api/api-reference.html) | 交互式手册源文件，单文件无外部依赖。线上见文档站；也可下载到本地双击，离线可用 |
+| [`docs/api/ticket-api.md`](./docs/api/ticket-api.md) | 9 个接口的完整文字说明，GitHub 上直接可读 |
 | [`docs/api/openapi.json`](./docs/api/openapi.json) | OpenAPI 3.1 规范，服务端真实导出，可导入 Postman / Apifox |
 
 接口一览：
