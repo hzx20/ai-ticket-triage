@@ -100,7 +100,7 @@
 ## 目录结构
 
 ```
-ai-ticket-admin/
+ai-ticket-triage/
 ├── backend/                        # 后端（ContiNew Admin 11 个模块 + 自研插件）
 │   └── continew-plugin/
 │       └── continew-plugin-ticket/ # ★ AI 工单插件
