@@ -6,7 +6,7 @@
 | --- | --- | --- |
 | [`ticket-api.md`](./ticket-api.md) | 工单模块 9 个接口的完整说明（参数表、示例、注意事项） | 在 GitHub 上直接读，或 Ctrl+F 搜字段名 |
 | [`api-reference.html`](./api-reference.html) | 离线可交互的接口手册，单文件、无外部依赖 | 双击用浏览器打开，左侧选接口，右侧看参数并可一键复制 curl |
-| [`openapi.json`](./openapi.json) | OpenAPI 3.1 规范文件，服务端真实导出（141 个路径） | 导入 Postman / Apifox / Insomnia，或喂给代码生成器 |
+| [`openapi.json`](./openapi.json) | OpenAPI 3.1 规范文件，服务端真实导出（141 个路径 / 196 个接口操作、200 个数据模型） | 导入 Postman / Apifox / Insomnia，或喂给代码生成器 |
 
 `openapi.json` 由本地启动的服务端 `GET /v3/api-docs` 原样导出，只有 `servers` 字段补了公网地址，其余未改动。
 
