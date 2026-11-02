@@ -272,6 +272,15 @@ sa-token:
       - /*/*.css
       - /*/*.js
       - /websocket/**
+      # 接口文档相关资源
+      # 只放行文档页面与文档清单（/v3/api-docs），业务接口不在其中，仍然要求登录
+      - /favicon.ico
+      - /doc.html
+      - /nextdoc/**
+      - /webjars/**
+      - /swagger-ui/**
+      - /swagger-resources/**
+      - /*/api-docs/**
       # 本地存储资源
       - /file/**
 

@@ -105,6 +105,10 @@ services:
       - "--continew-starter.refresh-token.cookie-secure=false"
       - "--continew-starter.refresh-token.cookie-name=refresh_token"
       - "--snail-job.enabled=false"
+      # nextdoc4j 默认跟随 application.production=true 在生产环境自屏蔽接口文档，
+      # 屏蔽时抛的是通用异常，表现为「服务器异常，请联系管理员」，很容易误判成鉴权问题。
+      # 这里关掉屏蔽，让 /doc.html 与 /v3/api-docs 可访问。只放行文档本身，业务接口仍然要 token。
+      - "--nextdoc4j.production=false"
 
   continew-web:
     image: nginx:1.27.0
