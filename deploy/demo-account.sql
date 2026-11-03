@@ -15,11 +15,18 @@ VALUES (9001, '演示访客', 'demo_guest', 1, '只读演示账号：只能查�
         b'1', b'1', 1, NOW(), 0, 0);
 
 -- 密码字段存的是 bcrypt 哈希（cost 10），明文不写在这个文件里。
--- 需要重置密码时：用 Spring Security 的 BCryptPasswordEncoder.encode(明文) 生成新哈希替换即可，
--- 注意不要用在线工具生成，没人能保证那些站点不记录。
+--
+-- 注意开头的 {bcrypt}：项目用的是 Spring Security 的 DelegatingPasswordEncoder，
+-- 它会根据 {...} 前缀决定用哪个算法校验。只写裸哈希（$2b$10$...）会抛
+--   IllegalArgumentException: Given that there is no default password encoder configured,
+--   each password must have a password encoding prefix
+-- 所以前缀必须带上。admin 账号在库里也是 {bcrypt}$2a$10$... 这个格式。
+--
+-- 需要重置密码时：用 BCryptPasswordEncoder.encode(明文) 生成新哈希后，手动补上 {bcrypt} 前缀。
+-- 不要用在线工具生成，没人能保证那些站点不记录。
 INSERT INTO `sys_user` (`id`, `username`, `nickname`, `password`, `gender`, `status`, `is_system`,
                         `dept_id`, `create_user`, `create_time`, `deleted`, `tenant_id`)
-VALUES (9002, 'demo', '演示账号', '$2b$10$vmFQic7iV.DHVzydtBpbRuWOvRXDt/wOEfBvpo/3arMJsjhzH04My',
+VALUES (9002, 'demo', '演示账号', '{bcrypt}$2b$10$vmFQic7iV.DHVzydtBpbRuWOvRXDt/wOEfBvpo/3arMJsjhzH04My',
         0, 1, b'0', 1, 1, NOW(), 0, 0);
 
 INSERT INTO `sys_user_role` (`id`, `user_id`, `role_id`, `tenant_id`)
