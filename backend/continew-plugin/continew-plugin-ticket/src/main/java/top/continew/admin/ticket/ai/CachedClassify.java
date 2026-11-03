@@ -38,7 +38,7 @@ import top.continew.admin.ticket.enums.TicketPriorityEnum;
  * @param reason   判定理由
  * @param fallback 原始判定是否为规则兜底
  * @param costMs   原始调用的耗时（毫秒）
- * @author WorkBuddy
+ * @author hzx20
  * @since 1.1.0
  */
 public record CachedClassify(String category,

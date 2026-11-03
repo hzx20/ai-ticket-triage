@@ -43,7 +43,7 @@ import top.continew.admin.ticket.enums.TicketPriorityEnum;
  * <li>解析失败也走兜底：模型偶尔会返回带 markdown 代码块的 JSON，直接反序列化会炸。</li>
  * </ol>
  *
- * @author WorkBuddy
+ * @author hzx20
  * @since 1.0.0
  */
 @Slf4j

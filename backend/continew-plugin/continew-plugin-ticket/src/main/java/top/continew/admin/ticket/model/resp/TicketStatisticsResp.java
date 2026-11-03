@@ -32,7 +32,7 @@ import java.util.Map;
  * 兜底率过高说明模型不可用；平均耗时过长说明该加缓存或换更快的模型。
  * </p>
  *
- * @author WorkBuddy
+ * @author hzx20
  * @since 1.0.0
  */
 @Data

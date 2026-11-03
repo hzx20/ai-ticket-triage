@@ -22,7 +22,7 @@ import lombok.RequiredArgsConstructor;
 /**
  * 工单优先级
  *
- * @author WorkBuddy
+ * @author hzx20
  * @since 1.0.0
  */
 @Getter

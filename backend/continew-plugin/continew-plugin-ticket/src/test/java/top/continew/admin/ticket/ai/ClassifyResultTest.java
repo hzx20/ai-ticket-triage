@@ -27,7 +27,7 @@ import top.continew.admin.ticket.enums.TicketPriorityEnum;
 /**
  * 分类结果与缓存值测试
  *
- * @author WorkBuddy
+ * @author hzx20
  * @since 1.1.0
  */
 class ClassifyResultTest {

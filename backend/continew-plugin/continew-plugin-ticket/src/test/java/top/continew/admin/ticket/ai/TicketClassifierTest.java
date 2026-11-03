@@ -41,7 +41,7 @@ import top.continew.admin.ticket.enums.TicketPriorityEnum;
  * 需要验证模型效果的部分放在 {@link TicketEvalRunner}，手动触发。
  * </p>
  *
- * @author WorkBuddy
+ * @author hzx20
  * @since 1.1.0
  */
 class TicketClassifierTest {

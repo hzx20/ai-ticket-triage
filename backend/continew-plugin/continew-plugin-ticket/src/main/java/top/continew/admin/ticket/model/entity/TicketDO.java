@@ -32,7 +32,7 @@ import java.io.Serial;
  * 框架会自动在每个查询后面拼上租户条件，不同租户的工单互相看不到。
  * </p>
  *
- * @author WorkBuddy
+ * @author hzx20
  * @since 1.0.0
  */
 @Data

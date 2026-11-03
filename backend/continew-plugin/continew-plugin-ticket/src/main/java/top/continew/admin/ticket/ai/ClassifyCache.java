@@ -52,7 +52,7 @@ import java.util.concurrent.atomic.AtomicLong;
  * 并发下两个线程会同时判空、同时调模型，等于没防住。</li>
  * </ol>
  *
- * @author WorkBuddy
+ * @author hzx20
  * @since 1.1.0
  */
 @Slf4j

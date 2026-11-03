@@ -45,7 +45,7 @@ import java.util.Optional;
  * 写进去的 key 都带 5 分钟 TTL，测完还会主动清理，不会在本地 Redis 里留垃圾。
  * </p>
  *
- * @author WorkBuddy
+ * @author hzx20
  * @since 1.1.0
  */
 class ClassifyCacheRedisTest {

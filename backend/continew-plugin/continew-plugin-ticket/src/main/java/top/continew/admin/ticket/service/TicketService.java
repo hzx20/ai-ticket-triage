@@ -27,7 +27,7 @@ import top.continew.starter.data.service.IService;
 /**
  * 工单业务接口
  *
- * @author WorkBuddy
+ * @author hzx20
  * @since 1.0.0
  */
 public interface TicketService

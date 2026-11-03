@@ -32,7 +32,7 @@ import java.io.Serializable;
  * 不需要手写 XML 或 Wrapper。
  * </p>
  *
- * @author WorkBuddy
+ * @author hzx20
  * @since 1.0.0
  */
 @Data

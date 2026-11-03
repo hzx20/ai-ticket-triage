@@ -29,7 +29,7 @@ import org.junit.jupiter.api.Test;
  * 表面上「缓存上线了」，实际上一次都没用上。所以这里把 key 的每一条性质都钉死。
  * </p>
  *
- * @author WorkBuddy
+ * @author hzx20
  * @since 1.1.0
  */
 class ClassifyCacheKeyTest {

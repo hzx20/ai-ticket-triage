@@ -27,7 +27,7 @@ import top.continew.starter.data.mapper.BaseMapper;
  * 常规单表操作不需要写 XML。
  * </p>
  *
- * @author WorkBuddy
+ * @author hzx20
  * @since 1.0.0
  */
 public interface TicketMapper extends BaseMapper<TicketDO> {

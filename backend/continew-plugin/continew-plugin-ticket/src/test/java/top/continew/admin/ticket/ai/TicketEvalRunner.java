@@ -58,7 +58,7 @@ import java.util.List;
  * 才能说明花的这笔钱换来了什么。如果模型和规则的准确率差不多，那这个 AI 模块就不该存在。
  * </p>
  *
- * @author WorkBuddy
+ * @author hzx20
  * @since 1.1.0
  */
 @EnabledIfEnvironmentVariable(named = "RUN_AI_EVAL", matches = "true")

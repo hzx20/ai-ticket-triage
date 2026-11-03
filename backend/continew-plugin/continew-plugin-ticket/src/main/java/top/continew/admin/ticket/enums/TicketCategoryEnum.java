@@ -26,7 +26,7 @@ import lombok.RequiredArgsConstructor;
  * 分类值同时会作为大模型输出 JSON 里的枚举取值，因此编码需要和提示词里的候选列表严格一致。
  * </p>
  *
- * @author WorkBuddy
+ * @author hzx20
  * @since 1.0.0
  */
 @Getter

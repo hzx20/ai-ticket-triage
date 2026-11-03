@@ -28,7 +28,7 @@ import top.continew.admin.ticket.enums.TicketPriorityEnum;
  * @param fallback 是否由规则兜底产生（true 表示大模型这次没用上）
  * @param costMs   耗时（毫秒）
  * @param source   结果来源（模型判定 / 规则兜底 / 缓存命中）
- * @author WorkBuddy
+ * @author hzx20
  * @since 1.0.0
  */
 public record ClassifyResult(TicketCategoryEnum category,

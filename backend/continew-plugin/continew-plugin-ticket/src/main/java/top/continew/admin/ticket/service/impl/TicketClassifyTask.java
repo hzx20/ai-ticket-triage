@@ -46,7 +46,7 @@ import java.util.concurrent.ThreadPoolExecutor;
  * 所以这里自己持有一个线程池实例，提交任务时直接用：既拿到了线程隔离，又不干扰容器里的其他线程池。
  * </p>
  *
- * @author WorkBuddy
+ * @author hzx20
  * @since 1.0.0
  */
 @Slf4j
