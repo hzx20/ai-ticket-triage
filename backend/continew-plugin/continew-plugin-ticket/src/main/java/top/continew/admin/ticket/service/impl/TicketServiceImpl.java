@@ -22,6 +22,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import top.continew.admin.common.base.service.BaseServiceImpl;
+import top.continew.admin.ticket.ai.ClassifyCache;
 import top.continew.admin.ticket.enums.TicketStatusEnum;
 import top.continew.admin.ticket.mapper.TicketMapper;
 import top.continew.admin.ticket.model.entity.TicketDO;
@@ -49,6 +50,8 @@ public class TicketServiceImpl
     implements TicketService {
 
     private final TicketClassifyTask ticketClassifyTask;
+
+    private final ClassifyCache classifyCache;
 
     /**
      * 创建工单
@@ -135,6 +138,11 @@ public class TicketServiceImpl
             .fallbackCount(fallback)
             .fallbackRate(total == 0 ? 0D : (double) fallback / total)
             .avgCostMs(avgCost)
+            .cacheHitCount(classifyCache.stats().hit())
+            .cacheMissCount(classifyCache.stats().miss())
+            .cacheHitRate(classifyCache.hitRate())
+            .cacheLockMissCount(classifyCache.stats().lockMiss())
+            .cacheErrorCount(classifyCache.stats().error())
             .build();
     }
 

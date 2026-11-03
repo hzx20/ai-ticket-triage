@@ -19,12 +19,14 @@ package top.continew.admin.ticket.service.impl;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Component;
+import top.continew.admin.ticket.ai.ClassifyCache;
 import top.continew.admin.ticket.ai.ClassifyResult;
 import top.continew.admin.ticket.ai.TicketClassifier;
 import top.continew.admin.ticket.mapper.TicketMapper;
 import top.continew.admin.ticket.model.entity.TicketDO;
 
 import jakarta.annotation.PreDestroy;
+import java.util.Optional;
 import java.util.concurrent.ThreadPoolExecutor;
 
 /**
@@ -55,11 +57,16 @@ public class TicketClassifyTask {
 
     private final TicketClassifier ticketClassifier;
 
+    private final ClassifyCache classifyCache;
+
     private final ThreadPoolTaskExecutor executor;
 
-    public TicketClassifyTask(TicketMapper ticketMapper, TicketClassifier ticketClassifier) {
+    public TicketClassifyTask(TicketMapper ticketMapper,
+        TicketClassifier ticketClassifier,
+        ClassifyCache classifyCache) {
         this.ticketMapper = ticketMapper;
         this.ticketClassifier = ticketClassifier;
+        this.classifyCache = classifyCache;
         ThreadPoolTaskExecutor pool = new ThreadPoolTaskExecutor();
         pool.setCorePoolSize(2);
         pool.setMaxPoolSize(4);
@@ -95,23 +102,68 @@ public class TicketClassifyTask {
             return;
         }
         try {
-            ClassifyResult result =
-                ticketClassifier.classify(ticket.getTitle(), ticket.getContent());
-            TicketDO update = new TicketDO();
-            update.setId(id);
-            update.setCategory(result.category().getValue());
-            update.setPriority(result.priority().getValue());
-            update.setAiReason(result.reason());
-            update.setAiFallback(result.fallback());
-            update.setAiCostMs(result.costMs());
-            ticketMapper.updateById(update);
-            log.info("工单分类完成。id={}, category={}, priority={}, fallback={}, cost={}ms", id, result
-                .category()
-                .getValue(), result.priority().getValue(), result.fallback(), result.costMs());
+            ClassifyResult result = classifyWithCache(ticket);
+            writeBack(id, result);
+            log.info("工单分类完成。id={}, category={}, priority={}, fallback={}, source={}, cost={}ms",
+                id,
+                result.category().getValue(), result.priority().getValue(), result.fallback(),
+                result
+                    .source().name(),
+                result.costMs());
         } catch (Exception e) {
             // 分类环节任何异常都不能往外抛，否则线程池里抛出的异常没人接，日志也只有一行堆栈
             log.error("工单分类异常，id={}", id, e);
         }
+    }
+
+    /**
+     * 带缓存的分类
+     *
+     * <p>
+     * 流程是：查缓存 → 命中就直接用 → 未命中就抢计算权 → 调模型 → 只有可信结果才回填。
+     * 抢不到计算权时不做任何等待，直接自己调模型：等待会把线程占住，而线程池只有 4 个线程，
+     * 多调一次模型最坏多花 0.001 元，占住线程可能让整个分类链路排队。
+     * </p>
+     *
+     * @param ticket 工单
+     * @return 分类结果
+     */
+    private ClassifyResult classifyWithCache(TicketDO ticket) {
+        String cacheKey = ClassifyCache.buildKey(ticket.getTenantId(), ticket.getTitle(), ticket
+            .getContent());
+
+        Optional<ClassifyResult> cached = classifyCache.get(cacheKey);
+        if (cached.isPresent()) {
+            log.info("分类缓存命中，跳过模型调用。id={}, key={}", ticket.getId(), cacheKey);
+            return cached.get();
+        }
+
+        classifyCache.tryLock(cacheKey);
+
+        ClassifyResult result = ticketClassifier.classify(ticket.getTitle(), ticket.getContent());
+
+        // 兜底结果不写缓存：模型可能是临时故障，缓存兜底等于让接下来 5 分钟的同内容工单都用错误分类
+        if (!result.fallback()) {
+            classifyCache.put(cacheKey, result);
+        }
+        return result;
+    }
+
+    /**
+     * 把分类结果写回工单
+     *
+     * @param id     工单 ID
+     * @param result 分类结果
+     */
+    private void writeBack(Long id, ClassifyResult result) {
+        TicketDO update = new TicketDO();
+        update.setId(id);
+        update.setCategory(result.category().getValue());
+        update.setPriority(result.priority().getValue());
+        update.setAiReason(result.reason());
+        update.setAiFallback(result.fallback());
+        update.setAiCostMs(result.costMs());
+        ticketMapper.updateById(update);
     }
 
     /**

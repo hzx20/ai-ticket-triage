@@ -105,7 +105,7 @@ public class TicketClassifier {
     public ClassifyResult classify(String title, String content) {
         long start = System.currentTimeMillis();
 
-        if (PLACEHOLDER_KEY.equals(apiKey) || apiKey.isBlank()) {
+        if (apiKey == null || PLACEHOLDER_KEY.equals(apiKey) || apiKey.isBlank()) {
             log.debug("未配置 DEEPSEEK_API_KEY，工单分类直接走规则兜底");
             return ruleBased(title, content, "未配置模型密钥，使用关键词规则判定", start);
         }
@@ -125,7 +125,7 @@ public class TicketClassifier {
                 .user(buildUserPrompt(title, content))
                 .call()
                 .content();
-            return parseModelOutput(raw, start);
+            return parseModelOutput(raw, title, content, start);
         } catch (Exception e) {
             // 分类失败绝不能影响工单入库，所以这里吞掉异常只记日志
             log.warn("工单分类调用模型失败，降级为规则判定。title={}, 原因={}", title, e.getMessage());
@@ -157,31 +157,40 @@ public class TicketClassifier {
      * 模型有时会在 JSON 外面套 ```json ``` 代码块，所以先截取第一个 { 到最后一个 } 之间的内容。
      * </p>
      *
-     * @param raw   模型原始输出
-     * @param start 开始时间戳（毫秒）
+     * <p>
+     * 这里带上了 title 和 content，是因为降级时要交给关键词规则重新判定。早期版本在降级分支里
+     * 传的是 {@code null, null}，规则拿不到任何文本，只能一路落到「其他 / 中」——表面上「降级成功」，
+     * 实际上等于把所有解析失败的工单都塞进同一个筐。这个问题在日志里看不出来，只有对比
+     * 「模型输出正常」和「模型输出异常」两批数据的分类分布才能发现。
+     * </p>
+     *
+     * @param raw     模型原始输出
+     * @param title   工单标题，降级时交给规则判定
+     * @param content 工单正文，降级时交给规则判定
+     * @param start   开始时间戳（毫秒）
      * @return 分类结果
      */
-    private ClassifyResult parseModelOutput(String raw, long start) {
-        int cost = (int) (System.currentTimeMillis() - start);
+    ClassifyResult parseModelOutput(String raw, String title, String content, long start) {
         if (raw == null || raw.isBlank()) {
-            return ruleBased(null, null, "模型返回为空，使用关键词规则判定", start);
+            return ruleBased(title, content, "模型返回为空，使用关键词规则判定", start);
         }
         int from = raw.indexOf('{');
         int to = raw.lastIndexOf('}');
         if (from < 0 || to <= from) {
             log.warn("模型输出不是 JSON：{}", raw);
-            return ruleBased(null, null, "模型输出格式异常，使用关键词规则判定", start);
+            return ruleBased(title, content, "模型输出格式异常，使用关键词规则判定", start);
         }
         try {
             JsonNode node = objectMapper.readTree(raw.substring(from, to + 1));
             String categoryText = node.path("category").asText("");
             int priorityValue = node.path("priority").asInt(2);
             String reason = node.path("reason").asText("模型未给出理由");
+            int cost = (int) (System.currentTimeMillis() - start);
             return ClassifyResult.ofModel(TicketCategoryEnum.parse(categoryText), TicketPriorityEnum
                 .parse(priorityValue), reason, cost);
         } catch (Exception e) {
             log.warn("模型输出解析失败：{}，原因={}", raw, e.getMessage());
-            return ruleBased(null, null, "模型输出解析失败，使用关键词规则判定", start);
+            return ruleBased(title, content, "模型输出解析失败，使用关键词规则判定", start);
         }
     }
 
@@ -193,13 +202,18 @@ public class TicketClassifier {
      * 在模型限流、网络抖动、密钥失效的时候，工单至少还能被分到一个大致正确的筐里。
      * </p>
      *
+     * <p>
+     * 可见性从 private 放宽到包级，是为了让同包的单元测试能直接验证规则映射，
+     * 不必为了测六行 if-else 去起一个 Spring 容器。
+     * </p>
+     *
      * @param title   标题
      * @param content 内容
      * @param reason  兜底原因说明
      * @param start   开始时间戳（毫秒）
      * @return 分类结果
      */
-    private ClassifyResult ruleBased(String title, String content, String reason, long start) {
+    ClassifyResult ruleBased(String title, String content, String reason, long start) {
         String text =
             ((title == null ? "" : title) + " " + (content == null ? "" : content)).toLowerCase();
         int cost = (int) (System.currentTimeMillis() - start);

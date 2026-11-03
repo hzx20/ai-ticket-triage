@@ -63,4 +63,19 @@ public class TicketStatisticsResp implements Serializable {
 
     @Schema(description = "AI 平均耗时（毫秒）")
     private Double avgCostMs;
+
+    @Schema(description = "分类缓存命中次数（当前实例，重启归零）")
+    private Long cacheHitCount;
+
+    @Schema(description = "分类缓存未命中次数（当前实例，重启归零）")
+    private Long cacheMissCount;
+
+    @Schema(description = "分类缓存命中率（0-1）")
+    private Double cacheHitRate;
+
+    @Schema(description = "抢占计算权失败次数（说明存在并发重复提交）")
+    private Long cacheLockMissCount;
+
+    @Schema(description = "缓存操作异常次数（Redis 不可用时会持续增长）")
+    private Long cacheErrorCount;
 }

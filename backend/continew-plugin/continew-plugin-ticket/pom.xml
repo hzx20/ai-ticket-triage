@@ -42,5 +42,27 @@
             <groupId>org.springframework.ai</groupId>
             <artifactId>spring-ai-starter-model-openai</artifactId>
         </dependency>
+
+        <!--
+          单元测试。父模块 continew-plugin 只依赖 continew-common，
+          不会带测试相关的 starter，所以这里必须显式声明，否则 src/test 下的类编不过。
+        -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <!--
+          仅测试用：主代码只依赖 spring-data-redis 的 API（StringRedisTemplate），
+          这些类通过 continew-common 已经传递进来；但真要连 Redis 需要具体的客户端实现
+          （Lettuce），生产包由 continew-server 提供，本模块的测试 classpath 里没有。
+          test 作用域只影响单测，不会进生产包。
+        -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-redis</artifactId>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 </project>

@@ -1,0 +1,30 @@
+{"title":"登不进去","content":"整个组都卡在加载页，密码输对了也进不去","expectCategory":"account","expectPriority":3}
+{"title":"新同事账号开不了","content":"上周入职的三个人都没有系统权限，审批流程已经走完了","expectCategory":"account","expectPriority":2}
+{"title":"密码重置邮件收不到","content":"点了忘记密码，邮箱一直没收到链接，垃圾箱也翻了","expectCategory":"account","expectPriority":2}
+{"title":"看不到财务模块","content":"菜单里没有报销入口，同部门其他人都有","expectCategory":"account","expectPriority":2}
+{"title":"管理员权限被收回了","content":"昨天还能改配置，今天进去只剩查看","expectCategory":"account","expectPriority":3}
+{"title":"页面一直转圈","content":"打开订单详情就卡住，等两分钟也没出来","expectCategory":"fault","expectPriority":2}
+{"title":"导出按钮点了没反应","content":"点完之后什么都没有发生，浏览器控制台有报错","expectCategory":"fault","expectPriority":2}
+{"title":"整个系统打不开了","content":"早上九点开始所有人都访问不了，显示服务异常","expectCategory":"fault","expectPriority":3}
+{"title":"消息推送延迟很久","content":"客户下单半小时后才收到通知","expectCategory":"fault","expectPriority":2}
+{"title":"附件上传到一半失败","content":"超过 10M 的文件都传不上去","expectCategory":"fault","expectPriority":2}
+{"title":"表格能不能按部门分组","content":"现在只能按时间排，想加一个维度","expectCategory":"feature","expectPriority":1}
+{"title":"希望支持批量审批","content":"一次只能点一条，月底要处理几百条","expectCategory":"feature","expectPriority":1}
+{"title":"加一个数据看板","content":"领导想看每周的趋势图，现在得手工统计","expectCategory":"feature","expectPriority":2}
+{"title":"能不能对接企业微信","content":"通知现在只在站内，容易漏看","expectCategory":"feature","expectPriority":1}
+{"title":"建议增加操作日志导出","content":"审计的时候需要提供给外部","expectCategory":"feature","expectPriority":2}
+{"title":"上周的数据少了几条","content":"统计报表显示 120 条，实际提交了 130 条","expectCategory":"data","expectPriority":2}
+{"title":"导出的 Excel 是空的","content":"选了三月的记录，下载下来只有表头","expectCategory":"data","expectPriority":2}
+{"title":"金额对不上","content":"订单明细加起来和汇总差了三百多","expectCategory":"data","expectPriority":3}
+{"title":"客户信息重复了","content":"同一个手机号出现三条记录","expectCategory":"data","expectPriority":2}
+{"title":"昨天的日报没有生成","content":"定时任务应该凌晨跑，今天没看到","expectCategory":"data","expectPriority":2}
+{"title":"这个流程怎么走","content":"想申请采购，不知道从哪个入口进","expectCategory":"consult","expectPriority":1}
+{"title":"在哪里修改公司抬头","content":"发票信息需要更新","expectCategory":"consult","expectPriority":1}
+{"title":"新人培训材料在哪","content":"找了半天没看到入职指引","expectCategory":"consult","expectPriority":1}
+{"title":"审批要几级","content":"五千以上的单子需要几个人签字","expectCategory":"consult","expectPriority":1}
+{"title":"怎么把权限转给别人","content":"我要休假，手上的单子需要交接","expectCategory":"consult","expectPriority":2}
+{"title":"反馈一个体验问题","content":"页面颜色看着有点刺眼，没有别的问题","expectCategory":"other","expectPriority":1}
+{"title":"想提个意见","content":"整体还不错，就是字有点小","expectCategory":"other","expectPriority":1}
+{"title":"关于这次改版的看法","content":"说不清哪里不对，感觉不如以前顺手","expectCategory":"other","expectPriority":1}
+{"title":"咨询一下合作","content":"我们是外部供应商，想了解对接方式","expectCategory":"other","expectPriority":2}
+{"title":"其他反馈","content":"暂时没想到具体的，先留个记录","expectCategory":"other","expectPriority":1}
