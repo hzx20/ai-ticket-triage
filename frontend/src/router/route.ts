@@ -15,16 +15,16 @@ export const systemRoutes: RouteRecordRaw[] = [
     path: '/',
     name: 'Dashboard',
     component: Layout,
-    // 登录后默认落在工单列表，而不是框架自带的工作台。
+    // 登录后第一眼看到的是工单概览，而不是框架自带的工作台。
     // 工作台那页展示的是 ContiNew 自己的项目介绍和广告，对这个项目来说是噪音。
-    redirect: '/ticket/list',
-    meta: { title: '仪表盘', icon: 'dashboard', hidden: true },
+    redirect: '/overview',
+    meta: { title: '概览', icon: 'dashboard', hidden: true },
     children: [
       {
-        path: '/dashboard/workplace',
-        name: 'Workplace',
-        component: () => import('@/views/dashboard/workplace/index.vue'),
-        meta: { title: '工作台', icon: 'desktop', hidden: true },
+        path: '/overview',
+        name: 'TicketOverview',
+        component: () => import('@/views/ticket/overview/index.vue'),
+        meta: { title: '概览', icon: 'dashboard', affix: true },
       },
       {
         path: '/dashboard/analysis',
