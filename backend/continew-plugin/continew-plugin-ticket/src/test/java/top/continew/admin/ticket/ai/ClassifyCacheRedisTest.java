@@ -20,6 +20,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -90,9 +91,7 @@ class ClassifyCacheRedisTest {
     @Test
     @DisplayName("写入后能按同一个 key 读出来，且来源被标记为缓存")
     void putThenGetShouldReturnCachedResult() {
-        if (!redisAvailable) {
-            return;
-        }
+        requireRedis();
         String key = ClassifyCache.buildKey(1L, "登不进去", "整个组卡在加载页，密码输对了也进不去");
         ClassifyResult original = ClassifyResult
             .ofModel(TicketCategoryEnum.ACCOUNT, TicketPriorityEnum.HIGH, "多人无法登录", 2162);
@@ -113,9 +112,7 @@ class ClassifyCacheRedisTest {
     @Test
     @DisplayName("key 不存在时返回空，不抛异常")
     void getMissingKeyShouldReturnEmpty() {
-        if (!redisAvailable) {
-            return;
-        }
+        requireRedis();
 
         assertThat(classifyCache.get(ClassifyCache.buildKey(999L, "不存在的标题", "不存在的描述")))
             .isEmpty();
@@ -124,9 +121,7 @@ class ClassifyCacheRedisTest {
     @Test
     @DisplayName("抢占计算权：第一次成功，第二次失败")
     void tryLockShouldOnlySucceedOnce() {
-        if (!redisAvailable) {
-            return;
-        }
+        requireRedis();
         String key = ClassifyCache.buildKey(2L, "并发测试", "两个线程同时提交");
 
         assertThat(classifyCache.tryLock(key)).isTrue();
@@ -138,9 +133,7 @@ class ClassifyCacheRedisTest {
     @Test
     @DisplayName("抢占标记存在时按未命中处理，不会把标记当成分类结果返回")
     void processingMarkerShouldBeTreatedAsMiss() {
-        if (!redisAvailable) {
-            return;
-        }
+        requireRedis();
         String key = ClassifyCache.buildKey(3L, "占位测试", "模拟另一个线程正在计算");
         classifyCache.tryLock(key);
 
@@ -152,9 +145,7 @@ class ClassifyCacheRedisTest {
     @Test
     @DisplayName("写入的 key 带 TTL，不会永久驻留")
     void writtenKeyShouldHaveTtl() {
-        if (!redisAvailable) {
-            return;
-        }
+        requireRedis();
         String key = ClassifyCache.buildKey(4L, "TTL 测试", "确认过期时间已设置");
         classifyCache.put(key, ClassifyResult
             .ofModel(TicketCategoryEnum.FAULT, TicketPriorityEnum.MEDIUM, "测试", 100));
@@ -169,9 +160,7 @@ class ClassifyCacheRedisTest {
     @Test
     @DisplayName("统计计数随命中、未命中增长")
     void statsShouldCountHitsAndMisses() {
-        if (!redisAvailable) {
-            return;
-        }
+        requireRedis();
         String key = ClassifyCache.buildKey(5L, "统计测试", "验证计数器");
         classifyCache.get(key);
         classifyCache.put(key, ClassifyResult
@@ -207,6 +196,19 @@ class ClassifyCacheRedisTest {
         } finally {
             deadFactory.destroy();
         }
+    }
+
+    /**
+     * 要求本地 Redis 可用
+     *
+     * <p>
+     * 用 Assumptions 而不是直接 return：连不上时测试会被标记为「跳过」，
+     * 而不是「通过」。这两种在 CI 报告里长得完全不一样——后者会让看报告的人以为
+     * 缓存逻辑被验证过了，实际上一次都没跑。
+     * </p>
+     */
+    private void requireRedis() {
+        Assumptions.assumeTrue(redisAvailable, "本地 Redis 不可用，跳过缓存集成测试");
     }
 
     private ClassifyCache newCache(StringRedisTemplate template) {

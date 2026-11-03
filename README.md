@@ -1,5 +1,7 @@
 # AI 工单管理系统
 
+[![ticket-tests](https://github.com/hzx20/ai-ticket-triage/actions/workflows/ticket-tests.yml/badge.svg)](https://github.com/hzx20/ai-ticket-triage/actions/workflows/ticket-tests.yml)
+
 用户提交工单时不用自己选分类。大模型读一遍描述，就判定它属于哪个分类、有多紧急，判断理由和耗时一并落库。
 
 模型是外部依赖，会超时、会限流、会欠费。所以这些都不影响工单入库：调用失败自动降级为关键词规则，工单照常提交，页面用「兜底率」把降级暴露出来，超过 30% 标红，避免模型悄悄挂了没人发现。
@@ -116,7 +118,7 @@
 | `ClassifyCacheKeyTest` | 7 | key 稳定性、租户隔离、拼接边界、超长截断 | 无 |
 | `ClassifyCacheRedisTest` | 7 | 真实读写、TTL、`SET NX` 抢占、统计计数、Redis 不可用时的降级 | 本地 Redis |
 
-前三个不依赖任何外部服务，构建时必跑；第四个会连 `127.0.0.1:6379`，连不上就整类跳过，不会卡住构建。
+前三个不依赖任何外部服务，构建时必跑；第四个会连 `127.0.0.1:6379`，连不上就整类跳过，不会卡住构建。GitHub Actions 里会起一个真 Redis 服务，所以 CI 上这 7 条是真跑的，不是跳过的。
 
 **测试当场抓到一个真 bug。** 写 `nonJsonOutputShouldFallBackWithOriginalText` 这条用例时发现：模型输出解析失败后调用 `ruleBased(null, null, ...)`，标题和正文传的是空值。结果是「降级成功」了，但规则拿不到任何文本，所有解析失败的工单都被塞进「其他 / 中」——日志上看不出任何异常，只有对比两批数据的分类分布才能发现。已修复为传入原始标题正文。
 

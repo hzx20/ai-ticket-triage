@@ -1,0 +1,52 @@
+name: ticket-tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    # 起一个真实 Redis，让缓存集成测试在 CI 里也能真跑。
+    # 不起 MySQL：这些单测只覆盖分类器、解析、key 生成和缓存，不碰数据库。
+    services:
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+
+      # 先把本模块依赖的兄弟模块装进本地仓库，否则单模块跑测试会找不到 continew-common
+      - name: Build dependencies
+        working-directory: backend
+        run: ./mvnw -pl continew-plugin/continew-plugin-ticket -am install -DskipTests -B
+
+      - name: Run ticket module tests
+        working-directory: backend/continew-plugin/continew-plugin-ticket
+        run: ../../mvnw test -B
+
+      - name: Publish test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: surefire-reports
+          path: backend/continew-plugin/continew-plugin-ticket/target/surefire-reports/
+          retention-days: 7
