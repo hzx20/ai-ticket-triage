@@ -28,7 +28,18 @@
         />
       </a-card>
       <a-card class="stat-card">
-        <a-statistic title="AI 平均耗时" :value="stat.avgCostMs || 0" :precision="0" suffix="ms" />
+        <a-statistic title="模型平均耗时" :value="stat.modelAvgCostMs || 0" :precision="0" suffix="ms" />
+      </a-card>
+      <a-card class="stat-card">
+        <!-- 和左边那张并排放，缓存到底省了多少时间才看得出来 -->
+        <a-statistic
+          title="缓存命中耗时"
+          :value="stat.cacheAvgCostMs || 0"
+          :precision="0"
+          suffix="ms"
+          :value-style="{ color: '#00b42a' }"
+        />
+        <div class="stat-note">比调模型快 {{ stat.savedCostMs.toFixed(0) }} ms</div>
       </a-card>
     </div>
 
@@ -234,6 +245,10 @@ const stat = ref<TicketStatisticsResp>({
   cacheHitRate: 0,
   cacheLockMissCount: 0,
   cacheErrorCount: 0,
+  sourceCount: {},
+  modelAvgCostMs: null,
+  cacheAvgCostMs: null,
+  savedCostMs: 0,
 })
 
 // 还有工单没分类完时给出提示
@@ -377,22 +392,28 @@ onMounted(refresh)
 
   .stat-grid {
     display: grid;
-    grid-template-columns: repeat(5, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 14px;
     margin-bottom: 14px;
   }
 
-  // 五张卡片用 24 栅格除不尽，所以这里用 grid 而不是 a-row/a-col
+  // 六张卡片用 24 栅格除不尽（6 张 × 4 = 24 太窄，×6 = 36 超了），所以用 grid 而不是 a-row
   @media (max-width: 1200px) {
     .stat-grid {
-      grid-template-columns: repeat(3, minmax(0, 1fr));
+      grid-template-columns: repeat(2, minmax(0, 1fr));
     }
   }
 
   @media (max-width: 768px) {
     .stat-grid {
-      grid-template-columns: repeat(2, minmax(0, 1fr));
+      grid-template-columns: minmax(0, 1fr);
     }
+  }
+
+  .stat-note {
+    margin-top: 4px;
+    color: var(--color-text-3);
+    font-size: 12px;
   }
 
   .stat-card {

@@ -93,12 +93,13 @@ class ClassifyResultTest {
             .ofModel(TicketCategoryEnum.FAULT, TicketPriorityEnum.HIGH, "接口 500", 1938);
 
         String json = objectMapper.writeValueAsString(CachedClassify.from(original));
-        ClassifyResult restored = objectMapper.readValue(json, CachedClassify.class).toResult();
+        ClassifyResult restored = objectMapper.readValue(json, CachedClassify.class).toResult(3);
 
         assertThat(restored.category()).isEqualTo(original.category());
         assertThat(restored.priority()).isEqualTo(original.priority());
         assertThat(restored.reason()).isEqualTo(original.reason());
-        assertThat(restored.costMs()).isEqualTo(original.costMs());
+        // 耗时用的是「本次读缓存耗时」，不是缓存里存的原始模型耗时（1938ms）
+        assertThat(restored.costMs()).isEqualTo(3);
         assertThat(restored.source()).isEqualTo(ClassifySource.CACHE);
     }
 
@@ -107,7 +108,7 @@ class ClassifyResultTest {
     void dirtyCachedCategoryShouldDegradeInsteadOfThrowing() {
         CachedClassify dirty = new CachedClassify("不存在的分类", 99, "脏数据", false, 10);
 
-        ClassifyResult result = dirty.toResult();
+        ClassifyResult result = dirty.toResult(1);
 
         assertThat(result.category()).isEqualTo(TicketCategoryEnum.OTHER);
         assertThat(result.priority()).isEqualTo(TicketPriorityEnum.MEDIUM);

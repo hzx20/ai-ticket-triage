@@ -66,4 +66,12 @@ export interface TicketStatisticsResp {
   cacheLockMissCount: number
   /** 缓存操作异常次数，Redis 不可用时会持续增长 */
   cacheErrorCount: number
+  /** 各来源数量（MODEL / RULE / CACHE） */
+  sourceCount: Record<string, number>
+  /** 模型判定平均耗时（毫秒） */
+  modelAvgCostMs: number | null
+  /** 缓存命中平均耗时（毫秒） */
+  cacheAvgCostMs: number | null
+  /** 缓存省下的平均耗时（毫秒） */
+  savedCostMs: number
 }

@@ -84,7 +84,7 @@ public record ClassifyResult(TicketCategoryEnum category,
      * @param priority 优先级
      * @param reason   原始判定理由
      * @param fallback 原始结果是否为规则兜底
-     * @param costMs   原始调用的耗时（保留下来便于对比缓存带来的收益）
+     * @param costMs   本次读缓存的实际耗时（不是当初调模型的耗时，否则统计上看不出缓存收益）
      * @return 分类结果
      */
     public static ClassifyResult ofCache(TicketCategoryEnum category,

@@ -169,6 +169,7 @@ public class ClassifyCache {
             return Optional.empty();
         }
         try {
+            long start = System.currentTimeMillis();
             String raw = redis.opsForValue().get(key);
             if (raw == null || PROCESSING.equals(raw)) {
                 missCount.incrementAndGet();
@@ -177,7 +178,8 @@ public class ClassifyCache {
             CachedClassify cached = objectMapper.readValue(raw, CachedClassify.class);
             hitCount.incrementAndGet();
             increaseDailyHitCounter(redis);
-            return Optional.of(cached.toResult());
+            // 记真实读取耗时（通常 1-5 毫秒），不是缓存的原始模型耗时
+            return Optional.of(cached.toResult((int) (System.currentTimeMillis() - start)));
         } catch (Exception e) {
             errorCount.incrementAndGet();
             log.warn("读取分类缓存失败，降级为直接调用模型。key={}, 原因={}", key, e.getMessage());

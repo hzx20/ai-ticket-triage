@@ -130,6 +130,33 @@ public class TicketServiceImpl
             avgCost = new BigDecimal(String.valueOf(avgRows.get(0).get("avg_cost"))).doubleValue();
         }
 
+        // 按结果来源分组：数量 + 平均耗时。
+        // 缓存到底省了多少时间，只有把「模型平均耗时」和「缓存平均耗时」并排放才说得清
+        Map<String, Long> sourceCount = new LinkedHashMap<>();
+        Double modelAvgCost = null;
+        Double cacheAvgCost = null;
+        List<Map<String, Object>> sourceRows = baseMapper.selectMaps(new QueryWrapper<TicketDO>()
+            .select("ai_source AS k", "COUNT(*) AS cnt", "AVG(ai_cost_ms) AS avg_cost")
+            .isNotNull("ai_source")
+            .groupBy("ai_source"));
+        for (Map<String, Object> row : sourceRows) {
+            String source = String.valueOf(row.get("k"));
+            sourceCount.put(source, toLong(row.get("cnt")));
+            Object avg = row.get("avg_cost");
+            if (avg == null) {
+                continue;
+            }
+            double value = new BigDecimal(String.valueOf(avg)).doubleValue();
+            if ("MODEL".equals(source)) {
+                modelAvgCost = value;
+            } else if ("CACHE".equals(source)) {
+                cacheAvgCost = value;
+            }
+        }
+        double savedCost = modelAvgCost != null && cacheAvgCost != null
+            ? Math.max(modelAvgCost - cacheAvgCost, 0D)
+            : 0D;
+
         return TicketStatisticsResp.builder()
             .total(total)
             .pendingCount(pending)
@@ -138,6 +165,10 @@ public class TicketServiceImpl
             .fallbackCount(fallback)
             .fallbackRate(total == 0 ? 0D : (double) fallback / total)
             .avgCostMs(avgCost)
+            .sourceCount(sourceCount)
+            .modelAvgCostMs(modelAvgCost)
+            .cacheAvgCostMs(cacheAvgCost)
+            .savedCostMs(savedCost)
             .cacheHitCount(classifyCache.stats().hit())
             .cacheMissCount(classifyCache.stats().miss())
             .cacheHitRate(classifyCache.hitRate())

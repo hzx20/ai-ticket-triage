@@ -67,10 +67,17 @@ public record CachedClassify(String category,
      * 这里的原则和模型输出解析保持一致——宁可判得粗一点，也不能让工单卡住。
      * </p>
      *
+     * <p>
+     * 耗时用的是调用方传进来的「本次读取耗时」，而不是字段里存的原始模型耗时。
+     * 早期版本直接复用原始耗时，结果是缓存命中写进库的 ai_cost_ms 还是 800 多毫秒，
+     * 「AI 平均耗时」这个指标完全看不出缓存有任何价值。
+     * </p>
+     *
+     * @param actualCostMs 本次读缓存的实际耗时（毫秒）
      * @return 分类结果，来源标记为缓存
      */
-    public ClassifyResult toResult() {
+    public ClassifyResult toResult(int actualCostMs) {
         return ClassifyResult.ofCache(TicketCategoryEnum.parse(category), TicketPriorityEnum
-            .parse(priority), reason, fallback, costMs);
+            .parse(priority), reason, fallback, actualCostMs);
     }
 }

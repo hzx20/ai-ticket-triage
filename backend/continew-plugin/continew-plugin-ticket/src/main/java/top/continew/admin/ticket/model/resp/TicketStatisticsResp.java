@@ -61,8 +61,20 @@ public class TicketStatisticsResp implements Serializable {
     @Schema(description = "规则兜底占比（0-1）")
     private Double fallbackRate;
 
-    @Schema(description = "AI 平均耗时（毫秒）")
+    @Schema(description = "AI 平均耗时（毫秒，含所有来源）")
     private Double avgCostMs;
+
+    @Schema(description = "各来源数量（MODEL / RULE / CACHE）")
+    private Map<String, Long> sourceCount;
+
+    @Schema(description = "模型判定平均耗时（毫秒）")
+    private Double modelAvgCostMs;
+
+    @Schema(description = "缓存命中平均耗时（毫秒）")
+    private Double cacheAvgCostMs;
+
+    @Schema(description = "缓存省下的平均耗时（毫秒）= 模型平均 - 缓存平均")
+    private Double savedCostMs;
 
     @Schema(description = "分类缓存命中次数（当前实例，重启归零）")
     private Long cacheHitCount;

@@ -89,7 +89,22 @@ public class TicketDO extends TenantBaseDO {
     private Boolean aiFallback;
 
     /**
-     * AI 调用耗时（毫秒），用于观察模型响应是否变慢
+     * AI 调用耗时（毫秒）
+     *
+     * <p>
+     * 缓存命中时记的是「读 Redis 的实际耗时」（通常几毫秒），不是当初调模型的耗时。
+     * 后者会让「平均耗时」这个指标看不出缓存有任何收益。
+     * </p>
      */
     private Integer aiCostMs;
+
+    /**
+     * AI 结果来源（MODEL：模型判定；RULE：规则兜底；CACHE：缓存命中）
+     *
+     * <p>
+     * 只看 category 和 priority 看不出这条记录是怎么来的。按来源分组统计，
+     * 才能回答「缓存到底省了多少时间」这类问题。
+     * </p>
+     */
+    private String aiSource;
 }

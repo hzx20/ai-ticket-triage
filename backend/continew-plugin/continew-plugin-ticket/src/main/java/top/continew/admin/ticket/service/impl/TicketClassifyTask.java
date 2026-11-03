@@ -163,6 +163,8 @@ public class TicketClassifyTask {
         update.setAiReason(result.reason());
         update.setAiFallback(result.fallback());
         update.setAiCostMs(result.costMs());
+        // 记下这条结果是怎么来的，统计接口据此分组算「模型平均耗时」和「缓存平均耗时」
+        update.setAiSource(result.source().name());
         ticketMapper.updateById(update);
     }
 

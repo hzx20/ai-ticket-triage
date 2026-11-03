@@ -72,3 +72,13 @@ ALTER TABLE `ticket`
 -- comment 而 Sa-Token 的通配匹配按段数进行，两段的 ticket:statistics 匹配不上 *:*:*，会返回 403
 UPDATE `sys_menu` SET `permission` = 'ticket:manage:classify' WHERE `id` = 6017;
 UPDATE `sys_menu` SET `permission` = 'ticket:manage:statistics' WHERE `id` = 6018;
+
+-- changeset workbuddy:7
+-- comment 新增 AI 结果来源字段，区分「模型判定 / 规则兜底 / 缓存命中」
+-- comment 动机：加了缓存之后，ai_cost_ms 在缓存命中时写的是当初调模型的耗时，
+-- comment 导致「AI 平均耗时」这个指标看不出缓存有任何收益。加来源字段后可以按来源分组统计，
+-- comment 同时缓存命中改为记录真实读取耗时（几毫秒），两个维度才都能被证明
+ALTER TABLE `ticket`
+    ADD COLUMN `ai_source` varchar(16) DEFAULT NULL COMMENT 'AI 结果来源（MODEL：模型判定；RULE：规则兜底；CACHE：缓存命中）' AFTER `ai_cost_ms`,
+    ADD INDEX `idx_ai_source` (`ai_source`);
+
