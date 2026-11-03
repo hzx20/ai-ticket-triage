@@ -34,6 +34,11 @@ jobs:
           java-version: '17'
           cache: maven
 
+      # 防御性动作：git 索引里已设 100755，但在 Windows 上开发时提交很容易丢掉可执行位，
+      # 这里再兜一层，避免因为 "Permission denied" 让整个流水线挂掉
+      - name: Make mvnw executable
+        run: chmod +x backend/mvnw
+
       # 先把本模块依赖的兄弟模块装进本地仓库，否则单模块跑测试会找不到 continew-common
       - name: Build dependencies
         working-directory: backend

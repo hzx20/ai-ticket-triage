@@ -56,4 +56,14 @@ export interface TicketStatisticsResp {
   fallbackCount: number
   fallbackRate: number
   avgCostMs: number | null
+  /** 缓存命中次数（当前实例，重启归零） */
+  cacheHitCount: number
+  /** 缓存未命中次数（当前实例，重启归零） */
+  cacheMissCount: number
+  /** 缓存命中率（0-1） */
+  cacheHitRate: number
+  /** 抢占计算权失败次数，说明存在并发重复提交 */
+  cacheLockMissCount: number
+  /** 缓存操作异常次数，Redis 不可用时会持续增长 */
+  cacheErrorCount: number
 }

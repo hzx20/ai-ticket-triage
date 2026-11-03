@@ -104,7 +104,7 @@
     ]
   },
   "simple-git-hooks": {
-    "pre-commit": "pnpm lint-staged"
+    "pre-commit": "cd frontend && pnpm lint-staged --relative"
   },
   "lint-staged": {
     "*.{js,jsx,ts,tsx,vue,mjs,cjs}": "eslint --fix"

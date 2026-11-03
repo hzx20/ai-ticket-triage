@@ -1,34 +1,36 @@
 <template>
   <div class="ticket-page">
     <!-- 统计卡片：这几个数用来判断 AI 分类是否可信 -->
-    <a-row :gutter="14" class="stat-row">
-      <a-col :xs="12" :sm="6">
-        <a-card class="stat-card">
-          <a-statistic title="工单总数" :value="stat.total" />
-        </a-card>
-      </a-col>
-      <a-col :xs="12" :sm="6">
-        <a-card class="stat-card">
-          <a-statistic title="待处理" :value="stat.pendingCount" :value-style="{ color: '#ff7d00' }" />
-        </a-card>
-      </a-col>
-      <a-col :xs="12" :sm="6">
-        <a-card class="stat-card">
-          <a-statistic
-            title="规则兜底率"
-            :value="stat.fallbackRate * 100"
-            :precision="1"
-            suffix="%"
-            :value-style="{ color: stat.fallbackRate > 0.3 ? '#f53f3f' : '#00b42a' }"
-          />
-        </a-card>
-      </a-col>
-      <a-col :xs="12" :sm="6">
-        <a-card class="stat-card">
-          <a-statistic title="AI 平均耗时" :value="stat.avgCostMs || 0" :precision="0" suffix="ms" />
-        </a-card>
-      </a-col>
-    </a-row>
+    <div class="stat-grid">
+      <a-card class="stat-card">
+        <a-statistic title="工单总数" :value="stat.total" />
+      </a-card>
+      <a-card class="stat-card">
+        <a-statistic title="待处理" :value="stat.pendingCount" :value-style="{ color: '#ff7d00' }" />
+      </a-card>
+      <a-card class="stat-card">
+        <a-statistic
+          title="规则兜底率"
+          :value="stat.fallbackRate * 100"
+          :precision="1"
+          suffix="%"
+          :value-style="{ color: stat.fallbackRate > 0.3 ? '#f53f3f' : '#00b42a' }"
+        />
+      </a-card>
+      <a-card class="stat-card">
+        <!-- 命中率本身不代表好坏了，Redis 异常才是真的有问题，所以这里用异常次数决定颜色 -->
+        <a-statistic
+          title="缓存命中率"
+          :value="stat.cacheHitRate * 100"
+          :precision="1"
+          suffix="%"
+          :value-style="{ color: stat.cacheErrorCount > 0 ? '#f53f3f' : '#165dff' }"
+        />
+      </a-card>
+      <a-card class="stat-card">
+        <a-statistic title="AI 平均耗时" :value="stat.avgCostMs || 0" :precision="0" suffix="ms" />
+      </a-card>
+    </div>
 
     <!-- 搜索条件 -->
     <a-card class="search-card">
@@ -181,186 +183,191 @@
 </template>
 
 <script setup lang="ts">
-  import { computed, onMounted, reactive, ref } from 'vue'
-  import { Message, Modal } from '@arco-design/web-vue'
-  import {
-    classifyTicket,
-    createTicket,
-    deleteTicket,
-    getTicket,
-    getTicketStatistics,
-    pageTicket,
-  } from '@/apis/ticket'
-  import type { TicketResp, TicketStatisticsResp } from '@/apis/ticket'
+import { computed, onMounted, reactive, ref } from 'vue'
+import { Message, Modal } from '@arco-design/web-vue'
+import {
+  classifyTicket,
+  createTicket,
+  deleteTicket,
+  getTicket,
+  getTicketStatistics,
+  pageTicket,
+} from '@/apis/ticket'
+import type { TicketResp, TicketStatisticsResp } from '@/apis/ticket'
 
-  defineOptions({ name: 'TicketList' })
+defineOptions({ name: 'TicketList' })
 
-  const loading = ref(false)
-  const submitting = ref(false)
-  const list = ref<TicketResp[]>([])
-  const total = ref(0)
+const loading = ref(false)
+const submitting = ref(false)
+const list = ref<TicketResp[]>([])
+const total = ref(0)
 
-  const query = reactive({
-    keyword: '',
-    category: undefined as string | undefined,
-    priority: undefined as number | undefined,
-    status: undefined as number | undefined,
-  })
+const query = reactive({
+  keyword: '',
+  category: undefined as string | undefined,
+  priority: undefined as number | undefined,
+  status: undefined as number | undefined,
+})
 
-  const pagination = reactive({ current: 1, pageSize: 10, total: 0, showTotal: true, showPageSize: true })
+const pagination = reactive({ current: 1, pageSize: 10, total: 0, showTotal: true, showPageSize: true })
 
-  const categoryOptions = [
-    { value: 'account', label: '账号与权限' },
-    { value: 'fault', label: '系统故障' },
-    { value: 'feature', label: '功能需求' },
-    { value: 'data', label: '数据问题' },
-    { value: 'consult', label: '使用咨询' },
-    { value: 'other', label: '其他' },
-  ]
+const categoryOptions = [
+  { value: 'account', label: '账号与权限' },
+  { value: 'fault', label: '系统故障' },
+  { value: 'feature', label: '功能需求' },
+  { value: 'data', label: '数据问题' },
+  { value: 'consult', label: '使用咨询' },
+  { value: 'other', label: '其他' },
+]
 
-  // 统计默认值，避免首次渲染时 undefined 报警
-  const stat = ref<TicketStatisticsResp>({
-    total: 0,
-    pendingCount: 0,
-    categoryCount: {},
-    priorityCount: {},
-    fallbackCount: 0,
-    fallbackRate: 0,
-    avgCostMs: null,
-  })
+// 统计默认值，避免首次渲染时 undefined 报警
+const stat = ref<TicketStatisticsResp>({
+  total: 0,
+  pendingCount: 0,
+  categoryCount: {},
+  priorityCount: {},
+  fallbackCount: 0,
+  fallbackRate: 0,
+  avgCostMs: null,
+  cacheHitCount: 0,
+  cacheMissCount: 0,
+  cacheHitRate: 0,
+  cacheLockMissCount: 0,
+  cacheErrorCount: 0,
+})
 
-  // 还有工单没分类完时给出提示
-  const hasPendingClassify = computed(() => list.value.some((item) => !item.category))
+// 还有工单没分类完时给出提示
+const hasPendingClassify = computed(() => list.value.some((item) => !item.category))
 
-  const categoryColor = (category: string) => {
-    const map: Record<string, string> = {
-      account: 'orangered',
-      fault: 'red',
-      feature: 'arcoblue',
-      data: 'purple',
-      consult: 'green',
-      other: 'gray',
-    }
-    return map[category] || 'gray'
+const categoryColor = (category: string) => {
+  const map: Record<string, string> = {
+    account: 'orangered',
+    fault: 'red',
+    feature: 'arcoblue',
+    data: 'purple',
+    consult: 'green',
+    other: 'gray',
   }
+  return map[category] || 'gray'
+}
 
-  const priorityLabel = (priority: number) => ({ 1: '低', 2: '中', 3: '高' })[priority] || '—'
-  const priorityColor = (priority: number) => ({ 1: 'gray', 2: 'blue', 3: 'red' })[priority] || 'gray'
-  const statusColor = (status: number) =>
-    ({ 1: 'orange', 2: 'arcoblue', 3: 'green', 4: 'gray' })[status] || 'gray'
+const priorityLabel = (priority: number) => ({ 1: '低', 2: '中', 3: '高' })[priority] || '—'
+const priorityColor = (priority: number) => ({ 1: 'gray', 2: 'blue', 3: 'red' })[priority] || 'gray'
+const statusColor = (status: number) =>
+  ({ 1: 'orange', 2: 'arcoblue', 3: 'green', 4: 'gray' })[status] || 'gray'
 
-  const fetchList = async () => {
-    loading.value = true
-    try {
-      const { data } = await pageTicket({
-        ...query,
-        page: pagination.current,
-        size: pagination.pageSize,
-      })
-      list.value = data?.list || []
-      total.value = data?.total || 0
-      pagination.total = total.value
-    } finally {
-      loading.value = false
-    }
-  }
-
-  const fetchStat = async () => {
-    const { data } = await getTicketStatistics()
-    if (data) stat.value = data
-  }
-
-  const refresh = () => Promise.all([fetchList(), fetchStat()])
-
-  const handleSearch = () => {
-    pagination.current = 1
-    refresh()
-  }
-
-  const handleReset = () => {
-    query.keyword = ''
-    query.category = undefined
-    query.priority = undefined
-    query.status = undefined
-    handleSearch()
-  }
-
-  const handlePageChange = (page: number) => {
-    pagination.current = page
-    fetchList()
-  }
-
-  // 新建工单
-  const createVisible = ref(false)
-  const form = reactive({ title: '', content: '' })
-
-  const openCreate = () => {
-    form.title = ''
-    form.content = ''
-    createVisible.value = true
-  }
-
-  const resetForm = () => {
-    form.title = ''
-    form.content = ''
-  }
-
-  const handleCreate = async () => {
-    if (!form.title.trim() || !form.content.trim()) {
-      Message.warning('标题和问题描述都要填')
-      return false
-    }
-    submitting.value = true
-    try {
-      await createTicket({ title: form.title.trim(), content: form.content.trim() })
-      Message.success('已提交，AI 正在后台分类')
-      createVisible.value = false
-      resetForm()
-      pagination.current = 1
-      await refresh()
-      // 分类是异步的，2 秒后再刷一次，通常这时结果已经回来了
-      setTimeout(refresh, 2000)
-      return true
-    } catch {
-      return false
-    } finally {
-      submitting.value = false
-    }
-  }
-
-  // 重新分类
-  const handleClassify = async (record: TicketResp) => {
-    Message.info('正在调用模型重新分类…')
-    await classifyTicket(record.id)
-    Message.success('分类已更新')
-    refresh()
-  }
-
-  // 删除
-  const handleDelete = (record: TicketResp) => {
-    Modal.warning({
-      title: '确认删除',
-      content: `确定删除工单「${record.title}」吗？`,
-      hideCancel: false,
-      onOk: async () => {
-        await deleteTicket(record.id)
-        Message.success('已删除')
-        refresh()
-      },
+const fetchList = async () => {
+  loading.value = true
+  try {
+    const { data } = await pageTicket({
+      ...query,
+      page: pagination.current,
+      size: pagination.pageSize,
     })
+    list.value = data?.list || []
+    total.value = data?.total || 0
+    pagination.total = total.value
+  } finally {
+    loading.value = false
   }
+}
 
-  // 详情
-  const detailVisible = ref(false)
-  const detail = ref<TicketResp | null>(null)
+const fetchStat = async () => {
+  const { data } = await getTicketStatistics()
+  if (data) stat.value = data
+}
 
-  const openDetail = async (record: TicketResp) => {
-    const { data } = await getTicket(record.id)
-    detail.value = data || null
-    detailVisible.value = true
+const refresh = () => Promise.all([fetchList(), fetchStat()])
+
+const handleSearch = () => {
+  pagination.current = 1
+  refresh()
+}
+
+const handleReset = () => {
+  query.keyword = ''
+  query.category = undefined
+  query.priority = undefined
+  query.status = undefined
+  handleSearch()
+}
+
+const handlePageChange = (page: number) => {
+  pagination.current = page
+  fetchList()
+}
+
+// 新建工单
+const createVisible = ref(false)
+const form = reactive({ title: '', content: '' })
+
+const openCreate = () => {
+  form.title = ''
+  form.content = ''
+  createVisible.value = true
+}
+
+const resetForm = () => {
+  form.title = ''
+  form.content = ''
+}
+
+const handleCreate = async () => {
+  if (!form.title.trim() || !form.content.trim()) {
+    Message.warning('标题和问题描述都要填')
+    return false
   }
+  submitting.value = true
+  try {
+    await createTicket({ title: form.title.trim(), content: form.content.trim() })
+    Message.success('已提交，AI 正在后台分类')
+    createVisible.value = false
+    resetForm()
+    pagination.current = 1
+    await refresh()
+    // 分类是异步的，2 秒后再刷一次，通常这时结果已经回来了
+    setTimeout(refresh, 2000)
+    return true
+  } catch {
+    return false
+  } finally {
+    submitting.value = false
+  }
+}
 
-  onMounted(refresh)
+// 重新分类
+const handleClassify = async (record: TicketResp) => {
+  Message.info('正在调用模型重新分类…')
+  await classifyTicket(record.id)
+  Message.success('分类已更新')
+  refresh()
+}
+
+// 删除
+const handleDelete = (record: TicketResp) => {
+  Modal.warning({
+    title: '确认删除',
+    content: `确定删除工单「${record.title}」吗？`,
+    hideCancel: false,
+    onOk: async () => {
+      await deleteTicket(record.id)
+      Message.success('已删除')
+      refresh()
+    },
+  })
+}
+
+// 详情
+const detailVisible = ref(false)
+const detail = ref<TicketResp | null>(null)
+
+const openDetail = async (record: TicketResp) => {
+  const { data } = await getTicket(record.id)
+  detail.value = data || null
+  detailVisible.value = true
+}
+
+onMounted(refresh)
 </script>
 
 <style scoped lang="scss">
@@ -368,8 +375,24 @@
     padding: $margin;
   }
 
-  .stat-row {
+  .stat-grid {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 14px;
     margin-bottom: 14px;
+  }
+
+  // 五张卡片用 24 栅格除不尽，所以这里用 grid 而不是 a-row/a-col
+  @media (max-width: 1200px) {
+    .stat-grid {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+  }
+
+  @media (max-width: 768px) {
+    .stat-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
   }
 
   .stat-card {
