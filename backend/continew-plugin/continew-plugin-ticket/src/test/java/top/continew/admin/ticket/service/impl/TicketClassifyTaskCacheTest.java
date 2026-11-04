@@ -124,7 +124,8 @@ class TicketClassifyTaskCacheTest {
         ArgumentCaptor<TicketDO> captor = ArgumentCaptor.forClass(TicketDO.class);
         verify(ticketMapper).updateById(captor.capture());
         assertThat(captor.getValue().getAiSource()).isEqualTo(ClassifySource.CACHE.name());
-        assertThat(captor.getValue().getCategory()).isEqualTo(TicketCategoryEnum.ACCOUNT.getValue());
+        assertThat(captor.getValue().getCategory())
+            .isEqualTo(TicketCategoryEnum.ACCOUNT.getValue());
 
         ClassifyCache.Stats stats = classifyCache.stats();
         assertThat(stats.hit()).isEqualTo(1L);
