@@ -180,11 +180,13 @@ public class TicketClassifyTask {
         ClassifyResult result = ticketClassifier.classify(ticket.getTitle(), ticket.getContent());
 
         // 兜底结果不写缓存：模型可能是临时故障，缓存兜底等于让接下来 5 分钟的同内容工单都用错误分类
-        if (!result.fallback()) {
-            classifyCache.put(cacheKey, result);
-        } else if (locked) {
-            // 兜底了就得把标记还回去，否则这个 key 会被占满 60 秒，后续同内容工单全要白等一轮
-            // 只有抢到锁的线程才有资格释放，没抢到的一方压根没写过标记，删了会误伤真正持锁的线程
+        boolean written = !result.fallback() && classifyCache.put(cacheKey, result);
+
+        // 走完这一步标记还没被结果覆盖，就得自己还回去：持有它却不用，等于把这个 key 锁满 60 秒，
+        // 期间所有同内容工单都抢不到锁、白等一轮轮询预算。两条路径会落到这里：
+        // ① 结果兜底（本来就不写缓存）；② 写缓存失败（put 返回 false，标记没被覆盖）。
+        // 只有抢到锁的线程才有资格释放，没抢到的一方压根没写过标记，删了会误伤真正持锁的线程。
+        if (!written && locked) {
             classifyCache.releaseMark(cacheKey);
         }
         return result;

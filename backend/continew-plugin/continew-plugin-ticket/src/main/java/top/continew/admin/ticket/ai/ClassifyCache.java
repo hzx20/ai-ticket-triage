@@ -334,23 +334,38 @@ public class ClassifyCache {
     /**
      * 写入缓存
      *
+     * <p>
+     * 写入失败不会影响本次分类结果（调用方手里已经有结果了），但**必须把失败告诉调用方**：
+     * 写成功时这次写入会顺手覆盖掉 {@code __PROCESSING__} 标记，写失败时标记还在，
+     * 会一直占到标记 TTL 到期。持锁的线程拿到 false 就该自己调 {@link #releaseMark} 收尾，
+     * 否则这一个 key 后面 60 秒内所有同内容工单都抢不到锁，白等一轮轮询预算。
+     * </p>
+     *
+     * <p>
+     * 为什么不在本方法里自己删标记：这里不知道调用方是不是持锁方。没抢到锁的线程压根没写过标记，
+     * 让它删就会误伤真正持锁的线程，所以删除动作必须交给知道 {@code locked} 的调用方。
+     * </p>
+     *
      * @param key    缓存 key
      * @param result 分类结果
+     * @return true 表示写入成功（标记已被结果覆盖）；false 表示没写成或压根没开缓存
      */
-    public void put(String key, ClassifyResult result) {
+    public boolean put(String key, ClassifyResult result) {
         if (!enabled) {
-            return;
+            return false;
         }
         StringRedisTemplate redis = redisTemplateProvider.getIfAvailable();
         if (redis == null) {
-            return;
+            return false;
         }
         try {
             String value = objectMapper.writeValueAsString(CachedClassify.from(result));
             redis.opsForValue().set(key, value, Duration.ofSeconds(ttlSeconds));
+            return true;
         } catch (Exception e) {
             errorCount.incrementAndGet();
             log.warn("写入分类缓存失败，不影响本次分类结果。key={}, 原因={}", key, e.getMessage());
+            return false;
         }
     }
 

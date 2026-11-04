@@ -20,6 +20,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -198,6 +199,45 @@ class TicketClassifyTaskCacheTest {
         newTask(noRedisCache).doClassify(TICKET_ID);
 
         verify(ticketClassifier, times(1)).classify(TITLE, CONTENT);
+    }
+
+    @Test
+    @DisplayName("抢到锁但写缓存失败时也要删标记，别让 key 白锁 60 秒")
+    void putFailureShouldReleaseProcessingMark() {
+        when(valueOperations.setIfAbsent(eq(cacheKey), anyString(), any(Duration.class)))
+            .thenReturn(true);
+        when(ticketClassifier.classify(TITLE, CONTENT))
+            .thenReturn(ClassifyResult
+                .ofModel(TicketCategoryEnum.ACCOUNT, TicketPriorityEnum.HIGH, "多人无法登录", 1800));
+        // 写结果的那一步炸了：标记没被覆盖，还留在 Redis 里
+        doThrow(new IllegalStateException("Redis 连接中断"))
+            .when(valueOperations)
+            .set(eq(cacheKey), anyString(), any(Duration.class));
+
+        newTask(classifyCache).doClassify(TICKET_ID);
+
+        // 写失败和结果兜底是同一个后果：持有标记却不用，必须还回去
+        verify(redisTemplate, times(1)).delete(cacheKey);
+    }
+
+    @Test
+    @DisplayName("没抢到锁时即便写缓存失败也不能删标记，否则会误伤持锁线程")
+    void putFailureWithoutLockShouldNotDeleteMark() {
+        when(valueOperations.setIfAbsent(eq(cacheKey), anyString(), any(Duration.class)))
+            .thenReturn(false);
+        // 轮询三次都空 → 自己调模型
+        when(valueOperations.get(cacheKey)).thenReturn(null);
+        when(ticketClassifier.classify(TITLE, CONTENT))
+            .thenReturn(ClassifyResult
+                .ofModel(TicketCategoryEnum.ACCOUNT, TicketPriorityEnum.HIGH, "多人无法登录", 1800));
+        doThrow(new IllegalStateException("Redis 连接中断"))
+            .when(valueOperations)
+            .set(eq(cacheKey), anyString(), any(Duration.class));
+
+        newTask(classifyCache).doClassify(TICKET_ID);
+
+        // 这个标记是别人写的，自己删掉会让持锁线程的回填失效
+        verify(redisTemplate, never()).delete(anyString());
     }
 
     /**
