@@ -173,6 +173,7 @@ public class TicketServiceImpl
             .cacheMissCount(classifyCache.stats().miss())
             .cacheHitRate(classifyCache.hitRate())
             .cacheLockMissCount(classifyCache.stats().lockMiss())
+            .cachePollHitCount(classifyCache.stats().pollHit())
             .cacheErrorCount(classifyCache.stats().error())
             .build();
     }

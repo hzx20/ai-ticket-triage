@@ -135,7 +135,9 @@ class ClassifyCacheRedisTest {
     void processingMarkerShouldBeTreatedAsMiss() {
         requireRedis();
         String key = ClassifyCache.buildKey(3L, "占位测试", "模拟另一个线程正在计算");
-        classifyCache.tryLock(key);
+        // 先清掉可能残留的同名 key，保证下面的抢占一定成功，避免上一次中断留下的标记让用例假失败
+        redisTemplate.delete(key);
+        assertThat(classifyCache.tryLock(key)).isTrue();
 
         assertThat(classifyCache.get(key)).isEmpty();
 

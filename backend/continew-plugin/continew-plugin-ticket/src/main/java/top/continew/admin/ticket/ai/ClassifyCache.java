@@ -49,7 +49,8 @@ import java.util.concurrent.atomic.AtomicLong;
  * <li><b>只有可信结果才写缓存。</b> 走规则兜底的结果不写——模型可能是临时故障（限流、超时），
  * 把兜底结果缓存 5 分钟，等于让这段时间内所有同内容工单都用错误分类。</li>
  * <li><b>用 SET NX 抢计算权，而不是「先 get 再 set」。</b> 两条命令不是原子的，
- * 并发下两个线程会同时判空、同时调模型，等于没防住。</li>
+ * 并发下两个线程会同时判空、同时调模型，等于没防住。抢到的一方是「唯一有权写这条缓存的人」，
+ * 抢不到的一方用 {@link #awaitResult} 短轮询等结果，等不到才自己算。</li>
  * </ol>
  *
  * @author hzx20
@@ -119,6 +120,17 @@ public class ClassifyCache {
 
     private final AtomicLong errorCount = new AtomicLong();
 
+    /**
+     * 轮询重读命中次数
+     *
+     * <p>
+     * 这是 hitCount 的子集（轮询命中同样算命中，也计入 hitCount），单独计数只为了回答一个问题：
+     * 「抢锁失败之后，等待真的换来了结果吗」。这个值长期接近 lockMissCount，说明并发重复提交确实存在
+     * 且轮询收益很高；长期接近 0，说明抢不到锁基本等于别人也失败了，等待纯属浪费时间，应该把等待预算调小。
+     * </p>
+     */
+    private final AtomicLong pollHitCount = new AtomicLong();
+
     public ClassifyCache(ObjectProvider<StringRedisTemplate> redisTemplateProvider,
         ObjectMapper objectMapper) {
         this.redisTemplateProvider = redisTemplateProvider;
@@ -160,6 +172,72 @@ public class ClassifyCache {
      * @return 命中时返回分类结果，未命中、值为抢占标记、Redis 异常时都返回空
      */
     public Optional<ClassifyResult> get(String key) {
+        return read(key, true);
+    }
+
+    /**
+     * 短轮询等别的线程把结果算出来
+     *
+     * <p>
+     * 只在「没抢到计算权」时调用。原始需求是「抢不到就自己调模型」，但那样 SET NX 只起到
+     * 计数作用，没有任何排他效果：拿锁的一方在算，没拿锁的一方立刻又算一遍，同一份工单
+     * 被算两次、花两次钱，还可能写出两个不一致的分类结果。加一层短轮询，把「抢不到锁」
+     * 变成「等一小会儿，大概率能白拿结果」。
+     * </p>
+     *
+     * <p>
+     * 等待预算是硬上限，不是目标值：最多读 {@code maxAttempts} 次、相邻两次之间睡
+     * {@code intervalMillis} 毫秒，读满就返回空，由调用方自己调模型。这里绝不阻塞等锁、
+     * 也不抛异常——分类链路的保底永远是「自己算一次」，等待只是省钱的手段。
+     * </p>
+     *
+     * <p>
+     * 计数口径：轮询期间的重读命中算命中（计入 {@link #hitCount}，并额外计入
+     * {@link #pollHitCount}）；轮询期间读到的空值<b>不算未命中</b>。理由是这些空读不是
+     * 「缓存没这条数据」，而是「缓存正在被写」，把它算进 miss 会让命中率凭空变低，
+     * 反而看不出缓存到底有没有用。
+     * </p>
+     *
+     * @param key            缓存 key
+     * @param maxAttempts    最多读几次，小于等于 0 时直接返回空
+     * @param intervalMillis 两次重读之间的间隔（毫秒）
+     * @return 等到结果时返回，等不到或 Redis 不可用时返回空
+     */
+    public Optional<ClassifyResult> awaitResult(String key, int maxAttempts, long intervalMillis) {
+        if (!enabled || maxAttempts <= 0) {
+            return Optional.empty();
+        }
+        // 没有 Redis 客户端就别等了：等待的前提是「别人正在写」，写不了就不存在等到的可能
+        if (redisTemplateProvider.getIfAvailable() == null) {
+            return Optional.empty();
+        }
+        for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+            if (attempt > 1 && !sleepQuietly(intervalMillis)) {
+                // 线程被中断（应用关闭、上游取消），立刻放弃等待，交给调用方自己算，保证有结果
+                return Optional.empty();
+            }
+            long errorsBefore = errorCount.get();
+            Optional<ClassifyResult> result = read(key, false);
+            if (result.isPresent()) {
+                pollHitCount.incrementAndGet();
+                return result;
+            }
+            if (errorCount.get() > errorsBefore) {
+                // 这次重读本身失败了（Redis 连不上、值反序列化不了），再等下去只是重复同一个失败
+                return Optional.empty();
+            }
+        }
+        return Optional.empty();
+    }
+
+    /**
+     * 读缓存的内部实现
+     *
+     * @param key       缓存 key
+     * @param countMiss 未命中是否计入 missCount。轮询重读传 false，避免把「正在写入」算成「没有数据」
+     * @return 命中时返回分类结果，否则返回空
+     */
+    private Optional<ClassifyResult> read(String key, boolean countMiss) {
         if (!enabled) {
             return Optional.empty();
         }
@@ -172,7 +250,9 @@ public class ClassifyCache {
             long start = System.currentTimeMillis();
             String raw = redis.opsForValue().get(key);
             if (raw == null || PROCESSING.equals(raw)) {
-                missCount.incrementAndGet();
+                if (countMiss) {
+                    missCount.incrementAndGet();
+                }
                 return Optional.empty();
             }
             CachedClassify cached = objectMapper.readValue(raw, CachedClassify.class);
@@ -188,11 +268,41 @@ public class ClassifyCache {
     }
 
     /**
+     * 睡一小会儿，不抛异常
+     *
+     * <p>
+     * 被中断时恢复中断标记再返回 false：吞掉中断会让线程池关闭时的取消信号失效，
+     * 上层（尤其是 Spring 的优雅停机）就再也叫不动这个线程了。
+     * </p>
+     *
+     * @param millis 睡眠时长（毫秒）
+     * @return true 表示正常睡完，false 表示被中断
+     */
+    private boolean sleepQuietly(long millis) {
+        if (millis <= 0) {
+            return true;
+        }
+        try {
+            Thread.sleep(millis);
+            return true;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return false;
+        }
+    }
+
+    /**
      * 抢占计算权
      *
      * <p>
-     * 抢不到不是错误。设计上抢不到的一方会继续走自己的模型调用，只是白花一次钱；
-     * 而如果改成阻塞等待，一个慢请求就能把线程池里的线程全占住，代价远大于多调一次模型。
+     * 抢不到不是错误，返回值必须被调用方用起来——这个返回值是唯一能区分「我是计算者」和
+     * 「我是等待者」的信号。早期版本调用时没接返回值，结果两条路径行为完全一致，
+     * 标记退化成纯粹的计数器，SET NX 白写了。
+     * </p>
+     *
+     * <p>
+     * 抢不到时调用方先走 {@link #awaitResult} 短轮询，等不到才自己调模型。不在这里阻塞等锁：
+     * 一个慢请求就能把线程池里的线程全占住，代价远大于多调一次模型。
      * </p>
      *
      * @param key 缓存 key
@@ -245,6 +355,45 @@ public class ClassifyCache {
     }
 
     /**
+     * 主动释放抢占标记
+     *
+     * <p>
+     * 只在「自己抢到了锁、但最终拿到的是兜底结果」时调用。兜底结果不写缓存，如果不删标记，
+     * 这个 key 会被 {@code __PROCESSING__} 占满整个标记 TTL（默认 60 秒）。这 60 秒里
+     * 所有同内容工单都会抢锁失败，然后白等一轮轮询预算才自己去调模型——一次兜底，拖慢
+     * 后续一分钟内的所有重复提交。
+     * </p>
+     *
+     * <p>
+     * <b>为什么直接 delete 不会误删别人的标记：</b>标记的 TTL 是 60 秒，而本线程持锁期间只做一件事
+     * ——调一次模型，模型那边连接超时 5 秒、读取超时 20 秒，单次调用最长 25 秒，远小于 60 秒。
+     * 也就是说，只要还在本线程的处理窗口内，这个 key 一定没过期、一定还是本线程写进去的那个
+     * {@code __PROCESSING__}，不存在「标记过期后被别的线程抢走、我又把人家的删了」的时间窗。
+     * 代价上限是：万一将来有人把超时配到 60 秒以上，这里就会误删，所以模型超时和标记 TTL
+     * 是必须一起看的两个数，改一个就要回头看另一个。
+     * </p>
+     *
+     * @param key 缓存 key
+     */
+    public void releaseMark(String key) {
+        if (!enabled) {
+            return;
+        }
+        StringRedisTemplate redis = redisTemplateProvider.getIfAvailable();
+        if (redis == null) {
+            return;
+        }
+        try {
+            redis.delete(key);
+        } catch (Exception e) {
+            // 删不掉最坏只是让后续请求多等一轮，不能让分类失败，所以只记日志
+            errorCount.incrementAndGet();
+            log.warn("释放分类抢占标记失败，该 key 将在 TTL 到期后自动失效。key={}, 原因={}", key, e
+                .getMessage());
+        }
+    }
+
+    /**
      * 当前实例的缓存统计
      *
      * <p>
@@ -255,7 +404,11 @@ public class ClassifyCache {
      * @return 统计快照
      */
     public Stats stats() {
-        return new Stats(hitCount.get(), missCount.get(), lockMissCount.get(), errorCount.get());
+        return new Stats(hitCount.get(),
+            missCount.get(),
+            lockMissCount.get(),
+            errorCount.get(),
+            pollHitCount.get());
     }
 
     /**
@@ -325,11 +478,12 @@ public class ClassifyCache {
     /**
      * 缓存统计快照
      *
-     * @param hit      命中次数
-     * @param miss     未命中次数（不含「Redis 不可用」）
+     * @param hit     命中次数（含轮询命中）
+     * @param miss    未命中次数（不含「Redis 不可用」，也不含轮询期间的空读）
      * @param lockMiss 抢占计算权失败次数
      * @param error    Redis 操作异常次数
+     * @param pollHit 轮询重读命中次数（hit 的子集）
      */
-    public record Stats(long hit, long miss, long lockMiss, long error) {
+    public record Stats(long hit, long miss, long lockMiss, long error, long pollHit) {
     }
 }

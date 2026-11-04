@@ -53,6 +53,16 @@ import java.util.concurrent.ThreadPoolExecutor;
 @Component
 public class TicketClassifyTask {
 
+    /**
+     * 抢锁失败后最多重读缓存几次
+     */
+    private static final int POLL_MAX_ATTEMPTS = 3;
+
+    /**
+     * 两次重读之间的间隔（毫秒）
+     */
+    private static final long POLL_INTERVAL_MILLIS = 50L;
+
     private final TicketMapper ticketMapper;
 
     private final TicketClassifier ticketClassifier;
@@ -120,10 +130,25 @@ public class TicketClassifyTask {
      * 带缓存的分类
      *
      * <p>
-     * 流程是：查缓存 → 命中就直接用 → 未命中就抢计算权 → 调模型 → 只有可信结果才回填。
-     * 抢不到计算权时不做任何等待，直接自己调模型：等待会把线程占住，而线程池只有 4 个线程，
-     * 多调一次模型最坏多花 0.001 元，占住线程可能让整个分类链路排队。
+     * 流程：查缓存 → 命中直接用 → 未命中抢计算权（SET NX）→ 抢到就自己调模型，抢不到先短轮询等结果
+     * → 等不到才自己调模型 → 只有可信结果才回填。
      * </p>
+     *
+     * <p>
+     * 抢不到锁时的轮询预算：最多重读 {@value #POLL_MAX_ATTEMPTS} 次，相邻两次之间间隔
+     * {@value #POLL_INTERVAL_MILLIS} 毫秒——2 个间隔共 100 毫秒，加上最多 3 次 Redis 往返，
+     * 整体压在 150 毫秒以内。这三个数字是这么定的：
+     * </p>
+     * <ul>
+     * <li><b>为什么愿意等：</b>拿锁的线程从写入标记到回填结果，窗口就是一次模型调用（本项目实测
+     * 约 2 秒）。轮询等的是这个窗口，等到就白拿一次结果，省一次模型调用（约 0.001 元）和一次
+     * 可能的分类不一致。</li>
+     * <li><b>为什么只等 150 毫秒：</b>线程池核心 2、最大 4、队列 200，等待会直接占住线程。150 毫秒
+     * 只相当于一次模型耗时的 7% 左右，最坏情况（三次全空读）也只多花 150 毫秒；如果把预算放大到
+     * 秒级，4 个线程同时等就把整条分类链路堵死，代价远大于多调一次模型。</li>
+     * <li><b>为什么不能省掉保底：</b>等待只是省钱手段。读到空、Redis 挂了、线程被中断，一律
+     * 落到「自己调模型」，不返回空、不抛异常——工单分类不能因为缓存而失败。</li>
+     * </ul>
      *
      * @param ticket 工单
      * @return 分类结果
@@ -138,13 +163,29 @@ public class TicketClassifyTask {
             return cached.get();
         }
 
-        classifyCache.tryLock(cacheKey);
+        // 这个返回值是「我是计算者还是等待者」的唯一依据，必须接住
+        boolean locked = classifyCache.tryLock(cacheKey);
+        if (!locked) {
+            // 抢不到说明可能有别的线程正在算同一条工单，先等它，别急着重复调模型
+            Optional<ClassifyResult> awaited = classifyCache
+                .awaitResult(cacheKey, POLL_MAX_ATTEMPTS, POLL_INTERVAL_MILLIS);
+            if (awaited.isPresent()) {
+                log.info("轮询等到其他线程的分类结果，跳过模型调用。id={}, key={}", ticket
+                    .getId(), cacheKey);
+                return awaited.get();
+            }
+            log.info("轮询未等到结果，回退为本次直接调用模型。id={}, key={}", ticket.getId(), cacheKey);
+        }
 
         ClassifyResult result = ticketClassifier.classify(ticket.getTitle(), ticket.getContent());
 
         // 兜底结果不写缓存：模型可能是临时故障，缓存兜底等于让接下来 5 分钟的同内容工单都用错误分类
         if (!result.fallback()) {
             classifyCache.put(cacheKey, result);
+        } else if (locked) {
+            // 兜底了就得把标记还回去，否则这个 key 会被占满 60 秒，后续同内容工单全要白等一轮
+            // 只有抢到锁的线程才有资格释放，没抢到的一方压根没写过标记，删了会误伤真正持锁的线程
+            classifyCache.releaseMark(cacheKey);
         }
         return result;
     }

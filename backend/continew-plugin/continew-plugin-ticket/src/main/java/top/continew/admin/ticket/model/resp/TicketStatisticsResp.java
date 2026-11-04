@@ -88,6 +88,9 @@ public class TicketStatisticsResp implements Serializable {
     @Schema(description = "抢占计算权失败次数（说明存在并发重复提交）")
     private Long cacheLockMissCount;
 
+    @Schema(description = "抢锁失败后靠轮询等到结果的次数（判断轮询是否值得保留）")
+    private Long cachePollHitCount;
+
     @Schema(description = "缓存操作异常次数（Redis 不可用时会持续增长）")
     private Long cacheErrorCount;
 }
