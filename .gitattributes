@@ -1,0 +1,13 @@
+# 换行符统一策略
+#
+# 背景：这台开发机 git config core.autocrlf = true，检出时会把仓库里的 LF 换成 CRLF；
+# 而 spotless 的 Eclipse 格式化器期望 LF，于是本地 spotless:check 会在根本没改过的文件上报
+# 二十多处格式违规，CI（Linux，LF）却完全不复现。误报多了就会有人习惯性跳过这道检查，
+# 结果真正的问题（比如超过 100 字符的行）一路带到 CI 才暴露。
+#
+# 这里显式声明 Java 源文件按 LF 检出，让本地工作区与 CI 看到的字节一致：
+# 本地 spotless:check 的结论从此可信，绿灯约等于 CI 绿灯。
+#
+# 只收 Java，不写 `* text=auto eol=lf`：仓库里有三百来个未被识别为文本的文件，
+# text=auto 会重新判定它们的属性，可能凭空产生一批索引变动，收益远小于风险。
+*.java text eol=lf
