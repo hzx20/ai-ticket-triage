@@ -74,6 +74,27 @@ pnpm lint && pnpm typecheck && pnpm build
 - **改完就要有测试。** 每个逻辑单元都必须补上对应的测试（新增功能写新测试，修 bug 先写能复现的用例）。交付给用户之前，所有门禁和测试必须全部真实跑通；没跑过、或跑挂了，不许交付，也不许写成「已验证」。
 - **推送不等于完成，要查 CI。** 推完必须查一次 GitHub Actions 的结果（`.github/workflows/ticket-tests.yml`），确认 `ticket-tests` 是 success 才算交付完。CI 触发是按推送（`on: push`）而非按提交，一次推多个提交只会给最后一个跑检查，所以看到红灯要先看是哪一步失败（`validate` 阶段多半是格式/规范，测试步骤才是业务逻辑），不要默认最新那个提交是肇事者。
 
+### 怎么查 CI
+
+优先用 API，被限流就抓 HTML 页面。两条路都要走代理（本机直连 GitHub 不通）。
+
+```bash
+# 1. 列最近几次运行，拿 run id 和结论
+curl -s -x http://127.0.0.1:7890 \
+  "https://api.github.com/repos/hzx20/ai-ticket-triage/actions/runs?per_page=5"
+
+# 2. API 报 "API rate limit exceeded"（匿名每小时 60 次，代理出口 IP 是共用的，
+#    被墙时很常见）就改成抓页面，一次 curl 拿到全部步骤结论
+curl -s -x http://127.0.0.1:7890 \
+  "https://github.com/hzx20/ai-ticket-triage/actions/runs/<run_id>" \
+  | grep -c -i failure        # 0 表示没有失败步骤
+```
+
+两个容易误判的地方：
+
+- 抓页面偶尔仍显示 `In progress`，那是缓存或页面还没刷新，**不代表失败**。等一两分钟换一次请求，别急着下结论、更别急着重推。
+- 抓取工具（WebFetch 一类）对同一个 URL 有 15 分钟缓存，反复问同一个地址会一直拿到旧状态。要复查就换 URL（比如带上 `?page=1` 这类无关参数），或者直接用 curl。
+
 ## 动手前的底线
 
 - 开工先 `git status`。工作区可能已有未提交的改动，禁止 `git checkout -- .`、`git reset --hard`、`git stash` 把它们一起抹掉。
