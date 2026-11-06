@@ -81,6 +81,9 @@ public class TicketResp extends BaseDetailResp {
     @Schema(description = "AI 调用耗时（毫秒）")
     private Integer aiCostMs;
 
+    @Schema(description = "分类结果来源（MODEL、RULE、CACHE）")
+    private String aiSource;
+
     /**
      * 分类名称（由编码翻译，不存库）
      *

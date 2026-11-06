@@ -21,6 +21,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Component;
 
 import java.nio.charset.StandardCharsets;
@@ -29,15 +30,17 @@ import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
+import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * 分类结果短缓存
  *
  * <p>
- * 解决两个真实存在的问题：同一份工单内容被重复提交时会重复花一次模型调用（约 0.001 元），
- * 而且两次调用可能给出不一致的分类结果。缓存把这两个问题一起消掉。
+ * 相同工单在缓存命中时复用模型判定，减少重复调用和结果不一致。
+ * 轮询未命中时仍会各自调用模型，不能保证并发请求只调用一次。
  * </p>
  *
  * <p>
@@ -74,6 +77,17 @@ public class ClassifyCache {
      * 抢占标记。写入这个值表示「已经有线程正在算这条工单」，其他线程读到它按未命中处理
      */
     private static final String PROCESSING = "__PROCESSING__";
+
+    private static final DefaultRedisScript<Long> PUT_IF_OWNED = new DefaultRedisScript<>(
+        "if redis.call('get', KEYS[1]) == ARGV[1] then "
+            + "redis.call('set', KEYS[1], ARGV[2], 'EX', ARGV[3]); return 1 "
+            + "else return 0 end",
+        Long.class);
+
+    private static final DefaultRedisScript<Long> RELEASE_IF_OWNED = new DefaultRedisScript<>(
+        "if redis.call('get', KEYS[1]) == ARGV[1] then "
+            + "return redis.call('del', KEYS[1]) else return 0 end",
+        Long.class);
 
     /**
      * 参与哈希的正文最大长度。超长工单只取前 2000 字，
@@ -182,11 +196,11 @@ public class ClassifyCache {
      * 只在「没抢到计算权」时调用。原始需求是「抢不到就自己调模型」，但那样 SET NX 只起到
      * 计数作用，没有任何排他效果：拿锁的一方在算，没拿锁的一方立刻又算一遍，同一份工单
      * 被算两次、花两次钱，还可能写出两个不一致的分类结果。加一层短轮询，把「抢不到锁」
-     * 变成「等一小会儿，大概率能白拿结果」。
+     * 变成「等一小会儿，如果恰好完成则复用结果」。
      * </p>
      *
      * <p>
-     * 等待预算是硬上限，不是目标值：最多读 {@code maxAttempts} 次、相邻两次之间睡
+     * 最多读 {@code maxAttempts} 次、相邻两次之间睡
      * {@code intervalMillis} 毫秒，读满就返回空，由调用方自己调模型。这里绝不阻塞等锁、
      * 也不抛异常——分类链路的保底永远是「自己算一次」，等待只是省钱的手段。
      * </p>
@@ -249,7 +263,7 @@ public class ClassifyCache {
         try {
             long start = System.currentTimeMillis();
             String raw = redis.opsForValue().get(key);
-            if (raw == null || PROCESSING.equals(raw)) {
+            if (raw == null || raw.startsWith(PROCESSING)) {
                 if (countMiss) {
                     missCount.incrementAndGet();
                 }
@@ -292,66 +306,45 @@ public class ClassifyCache {
     }
 
     /**
-     * 抢占计算权
-     *
-     * <p>
-     * 抢不到不是错误，返回值必须被调用方用起来——这个返回值是唯一能区分「我是计算者」和
-     * 「我是等待者」的信号。早期版本调用时没接返回值，结果两条路径行为完全一致，
-     * 标记退化成纯粹的计数器，SET NX 白写了。
-     * </p>
-     *
-     * <p>
-     * 抢不到时调用方先走 {@link #awaitResult} 短轮询，等不到才自己调模型。不在这里阻塞等锁：
-     * 一个慢请求就能把线程池里的线程全占住，代价远大于多调一次模型。
-     * </p>
+     * 抢占计算权，每次使用不同标记，防止标记过期后旧计算者覆盖新结果。
      *
      * @param key 缓存 key
-     * @return true 表示抢到，false 表示已有其他线程在算或 Redis 不可用
+     * @return 抢到时返回所有权标记，否则返回空
      */
-    public boolean tryLock(String key) {
+    public Optional<String> tryLock(String key) {
         if (!enabled) {
-            return false;
+            return Optional.empty();
         }
         StringRedisTemplate redis = redisTemplateProvider.getIfAvailable();
         if (redis == null) {
-            return false;
+            return Optional.empty();
         }
         try {
+            String marker = PROCESSING + ":" + UUID.randomUUID();
             Boolean ok = redis.opsForValue()
-                .setIfAbsent(key, PROCESSING, Duration.ofSeconds(processingTtlSeconds));
+                .setIfAbsent(key, marker, Duration.ofSeconds(processingTtlSeconds));
             if (Boolean.TRUE.equals(ok)) {
-                return true;
+                return Optional.of(marker);
             }
             lockMissCount.incrementAndGet();
-            return false;
+            return Optional.empty();
         } catch (Exception e) {
             errorCount.incrementAndGet();
             log.warn("抢占分类计算权失败，本次直接调用模型。key={}, 原因={}", key, e.getMessage());
-            return false;
+            return Optional.empty();
         }
     }
 
     /**
-     * 写入缓存
+     * 只有标记仍归本次计算所有时才原子写入结果。
      *
-     * <p>
-     * 写入失败不会影响本次分类结果（调用方手里已经有结果了），但**必须把失败告诉调用方**：
-     * 写成功时这次写入会顺手覆盖掉 {@code __PROCESSING__} 标记，写失败时标记还在，
-     * 会一直占到标记 TTL 到期。持锁的线程拿到 false 就该自己调 {@link #releaseMark} 收尾，
-     * 否则这一个 key 后面 60 秒内所有同内容工单都抢不到锁，白等一轮轮询预算。
-     * </p>
-     *
-     * <p>
-     * 为什么不在本方法里自己删标记：这里不知道调用方是不是持锁方。没抢到锁的线程压根没写过标记，
-     * 让它删就会误伤真正持锁的线程，所以删除动作必须交给知道 {@code locked} 的调用方。
-     * </p>
-     *
-     * @param key    缓存 key
+     * @param key 缓存 key
+     * @param marker 本次抢占取得的标记
      * @param result 分类结果
-     * @return true 表示写入成功（标记已被结果覆盖）；false 表示没写成或压根没开缓存
+     * @return 是否写入成功
      */
-    public boolean put(String key, ClassifyResult result) {
-        if (!enabled) {
+    public boolean putIfOwned(String key, String marker, ClassifyResult result) {
+        if (!enabled || marker == null || result.fallback()) {
             return false;
         }
         StringRedisTemplate redis = redisTemplateProvider.getIfAvailable();
@@ -360,8 +353,9 @@ public class ClassifyCache {
         }
         try {
             String value = objectMapper.writeValueAsString(CachedClassify.from(result));
-            redis.opsForValue().set(key, value, Duration.ofSeconds(ttlSeconds));
-            return true;
+            Long written = redis.execute(PUT_IF_OWNED, List.of(key), marker, value,
+                Long.toString(ttlSeconds));
+            return Long.valueOf(1L).equals(written);
         } catch (Exception e) {
             errorCount.incrementAndGet();
             log.warn("写入分类缓存失败，不影响本次分类结果。key={}, 原因={}", key, e.getMessage());
@@ -370,28 +364,13 @@ public class ClassifyCache {
     }
 
     /**
-     * 主动释放抢占标记
-     *
-     * <p>
-     * 只在「自己抢到了锁、但最终拿到的是兜底结果」时调用。兜底结果不写缓存，如果不删标记，
-     * 这个 key 会被 {@code __PROCESSING__} 占满整个标记 TTL（默认 60 秒）。这 60 秒里
-     * 所有同内容工单都会抢锁失败，然后白等一轮轮询预算才自己去调模型——一次兜底，拖慢
-     * 后续一分钟内的所有重复提交。
-     * </p>
-     *
-     * <p>
-     * <b>为什么直接 delete 不会误删别人的标记：</b>标记的 TTL 是 60 秒，而本线程持锁期间只做一件事
-     * ——调一次模型，模型那边连接超时 5 秒、读取超时 20 秒，单次调用最长 25 秒，远小于 60 秒。
-     * 也就是说，只要还在本线程的处理窗口内，这个 key 一定没过期、一定还是本线程写进去的那个
-     * {@code __PROCESSING__}，不存在「标记过期后被别的线程抢走、我又把人家的删了」的时间窗。
-     * 代价上限是：万一将来有人把超时配到 60 秒以上，这里就会误删，所以模型超时和标记 TTL
-     * 是必须一起看的两个数，改一个就要回头看另一个。
-     * </p>
+     * 原子校验并释放自己的标记；标记过期或已被替换时不修改缓存。
      *
      * @param key 缓存 key
+     * @param marker 本次抢占取得的标记
      */
-    public void releaseMark(String key) {
-        if (!enabled) {
+    public void releaseMark(String key, String marker) {
+        if (!enabled || marker == null) {
             return;
         }
         StringRedisTemplate redis = redisTemplateProvider.getIfAvailable();
@@ -399,9 +378,8 @@ public class ClassifyCache {
             return;
         }
         try {
-            redis.delete(key);
+            redis.execute(RELEASE_IF_OWNED, List.of(key), marker);
         } catch (Exception e) {
-            // 删不掉最坏只是让后续请求多等一轮，不能让分类失败，所以只记日志
             errorCount.incrementAndGet();
             log.warn("释放分类抢占标记失败，该 key 将在 TTL 到期后自动失效。key={}, 原因={}", key, e
                 .getMessage());

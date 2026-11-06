@@ -18,6 +18,8 @@ export interface TicketResp {
   aiReason?: string
   /** 是否走了关键词规则兜底 */
   aiFallback?: boolean
+  /** 判定来源：模型、规则或缓存；历史记录可能为空 */
+  aiSource?: 'MODEL' | 'RULE' | 'CACHE' | null
   /** AI 调用耗时（毫秒） */
   aiCostMs?: number
   createUserString?: string

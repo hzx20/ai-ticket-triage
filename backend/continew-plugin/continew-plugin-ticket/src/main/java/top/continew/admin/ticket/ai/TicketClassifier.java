@@ -27,6 +27,8 @@ import org.springframework.stereotype.Component;
 import top.continew.admin.ticket.enums.TicketCategoryEnum;
 import top.continew.admin.ticket.enums.TicketPriorityEnum;
 
+import java.util.Arrays;
+
 /**
  * 工单分类器
  *
@@ -110,12 +112,11 @@ public class TicketClassifier {
             return ruleBased(title, content, "未配置模型密钥，使用关键词规则判定", start);
         }
 
-        ChatModel chatModel = chatModelProvider.getIfAvailable();
-        if (chatModel == null) {
-            return ruleBased(title, content, "模型客户端未初始化，使用关键词规则判定", start);
-        }
-
         try {
+            ChatModel chatModel = chatModelProvider.getIfAvailable();
+            if (chatModel == null) {
+                return ruleBased(title, content, "模型客户端未初始化，使用关键词规则判定", start);
+            }
             if (chatClient == null) {
                 // ChatClient 是轻量包装，构造一次复用即可，不必每次新建
                 this.chatClient = ChatClient.builder(chatModel).build();
@@ -182,9 +183,20 @@ public class TicketClassifier {
         }
         try {
             JsonNode node = objectMapper.readTree(raw.substring(from, to + 1));
-            String categoryText = node.path("category").asText("");
-            int priorityValue = node.path("priority").asInt(2);
-            String reason = node.path("reason").asText("模型未给出理由");
+            JsonNode category = node.path("category");
+            JsonNode priority = node.path("priority");
+            JsonNode reasonNode = node.path("reason");
+            boolean validCategory = category.isTextual()
+                && Arrays.stream(TicketCategoryEnum.values())
+                    .anyMatch(item -> item.getValue().equals(category.asText()));
+            if (!node.isObject() || !validCategory || !priority.isInt()
+                || priority.intValue() < 1 || priority.intValue() > 3
+                || !reasonNode.isTextual() || reasonNode.asText().isBlank()) {
+                return ruleBased(title, content, "模型输出字段无效，使用关键词规则判定", start);
+            }
+            String categoryText = category.asText();
+            int priorityValue = priority.intValue();
+            String reason = reasonNode.asText();
             int cost = (int) (System.currentTimeMillis() - start);
             return ClassifyResult.ofModel(TicketCategoryEnum.parse(categoryText), TicketPriorityEnum
                 .parse(priorityValue), reason, cost);

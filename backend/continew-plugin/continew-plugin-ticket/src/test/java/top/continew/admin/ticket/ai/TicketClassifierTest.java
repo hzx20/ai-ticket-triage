@@ -18,6 +18,7 @@ package top.continew.admin.ticket.ai;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
@@ -25,6 +26,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.test.util.ReflectionTestUtils;
 import top.continew.admin.ticket.enums.TicketCategoryEnum;
 import top.continew.admin.ticket.enums.TicketPriorityEnum;
 
@@ -118,21 +120,22 @@ class TicketClassifierTest {
     }
 
     @Test
-    @DisplayName("越界的分类值降级为「其他」，不抛异常")
-    void unknownCategoryShouldFallBackToOther() {
-        ClassifyResult result =
-            parse("{\"category\":\"unknown-value\",\"priority\":2,\"reason\":\"x\"}");
-
-        assertThat(result.category()).isEqualTo(TicketCategoryEnum.OTHER);
-        // 分类虽然降级了，但这次仍然是模型给出的结果，不应被标记成规则兜底
-        assertThat(result.fallback()).isFalse();
-    }
-
-    @Test
-    @DisplayName("非法优先级降级为「中」，不把工单沉底")
-    void illegalPriorityShouldFallBackToMedium() {
-        assertThat(parse("{\"category\":\"fault\",\"priority\":9,\"reason\":\"x\"}").priority())
-            .isEqualTo(TicketPriorityEnum.MEDIUM);
+    @DisplayName("缺失、类型错误或越界字段不能冒充可信模型结果")
+    void invalidFieldsShouldUseRules() {
+        String[] invalid = {
+            "{}",
+            "{\"category\":\"unknown-value\",\"priority\":2,\"reason\":\"x\"}",
+            "{\"category\":\"fault\",\"priority\":9,\"reason\":\"x\"}",
+            "{\"category\":\"fault\",\"priority\":\"3\",\"reason\":\"x\"}",
+            "{\"category\":\"fault\",\"priority\":3,\"reason\":\"  \"}"
+        };
+        for (String raw : invalid) {
+            ClassifyResult result = classifier.parseModelOutput(raw, "登录失败", "无法登录", System
+                .currentTimeMillis());
+            assertThat(result.fallback()).as(raw).isTrue();
+            assertThat(result.category()).as(raw).isEqualTo(TicketCategoryEnum.ACCOUNT);
+            assertThat(result.source()).as(raw).isEqualTo(ClassifySource.RULE);
+        }
     }
 
     @Test
@@ -156,6 +159,21 @@ class TicketClassifierTest {
 
         assertThat(result.fallback()).isTrue();
         assertThat(result.category()).isEqualTo(TicketCategoryEnum.DATA);
+    }
+
+    @Test
+    @DisplayName("模型客户端初始化抛异常时仍用工单原文回退")
+    @SuppressWarnings("unchecked")
+    void providerFailureShouldUseRules() {
+        ObjectProvider<ChatModel> provider = mock(ObjectProvider.class);
+        when(provider.getIfAvailable()).thenThrow(new IllegalStateException("初始化失败"));
+        TicketClassifier failed = new TicketClassifier(provider, new ObjectMapper());
+        ReflectionTestUtils.setField(failed, "apiKey", "test-key");
+
+        ClassifyResult result = failed.classify("登录失败", "整个组无法登录");
+
+        assertThat(result.fallback()).isTrue();
+        assertThat(result.category()).isEqualTo(TicketCategoryEnum.ACCOUNT);
     }
 
     private ClassifyResult rule(String title, String content) {

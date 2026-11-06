@@ -16,14 +16,21 @@
 
 package top.continew.admin.ticket.service.impl;
 
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import top.continew.admin.ticket.ai.ClassifyCache;
 import top.continew.admin.ticket.ai.ClassifyResult;
 import top.continew.admin.ticket.ai.TicketClassifier;
 import top.continew.admin.ticket.mapper.TicketMapper;
 import top.continew.admin.ticket.model.entity.TicketDO;
+import top.continew.starter.extension.tenant.context.TenantContext;
+import top.continew.starter.extension.tenant.context.TenantContextHolder;
 
 import jakarta.annotation.PreDestroy;
 import java.util.Optional;
@@ -71,12 +78,18 @@ public class TicketClassifyTask {
 
     private final ThreadPoolTaskExecutor executor;
 
+    private final TransactionTemplate isolatedTransaction;
+
     public TicketClassifyTask(TicketMapper ticketMapper,
         TicketClassifier ticketClassifier,
-        ClassifyCache classifyCache) {
+        ClassifyCache classifyCache,
+        PlatformTransactionManager transactionManager) {
         this.ticketMapper = ticketMapper;
         this.ticketClassifier = ticketClassifier;
         this.classifyCache = classifyCache;
+        this.isolatedTransaction = new TransactionTemplate(transactionManager);
+        this.isolatedTransaction
+            .setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
         ThreadPoolTaskExecutor pool = new ThreadPoolTaskExecutor();
         pool.setCorePoolSize(2);
         pool.setMaxPoolSize(4);
@@ -97,7 +110,40 @@ public class TicketClassifyTask {
      * @param id 工单 ID
      */
     public void submit(Long id) {
-        executor.execute(() -> this.doClassify(id));
+        TenantContext tenant = copyTenantContext(TenantContextHolder.getContext());
+        boolean ignore = TenantContextHolder.isIgnore();
+        Thread submittingThread = Thread.currentThread();
+        executor.execute(() -> {
+            // CallerRunsPolicy 可能在请求线程执行：保存并恢复已有上下文，不能直接清空。
+            TenantContext previous = TenantContextHolder.getContext();
+            boolean previousIgnore = TenantContextHolder.isIgnore();
+            try {
+                TenantContextHolder.setContext(tenant);
+                TenantContextHolder.setIgnore(ignore);
+                boolean isolateDatabase = Thread.currentThread() == submittingThread
+                    && TransactionSynchronizationManager.isActualTransactionActive();
+                this.doClassify(id, isolateDatabase);
+            } finally {
+                TenantContextHolder.clear();
+                if (Thread.currentThread() == submittingThread) {
+                    if (previous != null) {
+                        TenantContextHolder.setContext(previous);
+                    }
+                    TenantContextHolder.setIgnore(previousIgnore);
+                }
+            }
+        });
+    }
+
+    private TenantContext copyTenantContext(TenantContext source) {
+        if (source == null) {
+            return null;
+        }
+        TenantContext copy = new TenantContext();
+        copy.setTenantId(source.getTenantId());
+        copy.setIsolationLevel(source.getIsolationLevel());
+        copy.setDataSource(source.getDataSource());
+        return copy;
     }
 
     /**
@@ -106,20 +152,32 @@ public class TicketClassifyTask {
      * @param id 工单 ID
      */
     public void doClassify(Long id) {
-        TicketDO ticket = ticketMapper.selectById(id);
-        if (ticket == null) {
-            log.warn("工单不存在，跳过分类。id={}", id);
-            return;
-        }
+        doClassify(id, false);
+    }
+
+    private void doClassify(Long id, boolean isolateDatabase) {
         try {
+            TicketDO ticket = isolateDatabase
+                ? isolatedTransaction.execute(status -> ticketMapper.selectById(id))
+                : ticketMapper.selectById(id);
+            if (ticket == null) {
+                log.warn("工单不存在，跳过分类。id={}", id);
+                return;
+            }
             ClassifyResult result = classifyWithCache(ticket);
-            writeBack(id, result);
-            log.info("工单分类完成。id={}, category={}, priority={}, fallback={}, source={}, cost={}ms",
-                id,
-                result.category().getValue(), result.priority().getValue(), result.fallback(),
-                result
-                    .source().name(),
-                result.costMs());
+            boolean written = isolateDatabase
+                ? Boolean.TRUE
+                    .equals(isolatedTransaction.execute(status -> writeBack(ticket, result)))
+                : writeBack(ticket, result);
+            if (written) {
+                log.info(
+                    "工单分类完成。id={}, category={}, priority={}, fallback={}, source={}, cost={}ms",
+                    id, result.category().getValue(), result.priority().getValue(),
+                    result.fallback(),
+                    result.source().name(), result.costMs());
+            } else {
+                log.info("工单已被修改或删除，跳过过期的分类结果。id={}", id);
+            }
         } catch (Exception e) {
             // 分类环节任何异常都不能往外抛，否则线程池里抛出的异常没人接，日志也只有一行堆栈
             log.error("工单分类异常，id={}", id, e);
@@ -135,20 +193,10 @@ public class TicketClassifyTask {
      * </p>
      *
      * <p>
-     * 抢不到锁时的轮询预算：最多重读 {@value #POLL_MAX_ATTEMPTS} 次，相邻两次之间间隔
-     * {@value #POLL_INTERVAL_MILLIS} 毫秒——2 个间隔共 100 毫秒，加上最多 3 次 Redis 往返，
-     * 整体压在 150 毫秒以内。这三个数字是这么定的：
+     * 最多重读 {@value #POLL_MAX_ATTEMPTS} 次，相邻两次间隔
+     * {@value #POLL_INTERVAL_MILLIS} 毫秒。Redis 的实际往返耗时不包含在间隔中，
+     * 因此总等待时间没有由这两个参数严格限定。等不到时仍会产生重复模型调用。
      * </p>
-     * <ul>
-     * <li><b>为什么愿意等：</b>拿锁的线程从写入标记到回填结果，窗口就是一次模型调用（本项目实测
-     * 约 2 秒）。轮询等的是这个窗口，等到就白拿一次结果，省一次模型调用（约 0.001 元）和一次
-     * 可能的分类不一致。</li>
-     * <li><b>为什么只等 150 毫秒：</b>线程池核心 2、最大 4、队列 200，等待会直接占住线程。150 毫秒
-     * 只相当于一次模型耗时的 7% 左右，最坏情况（三次全空读）也只多花 150 毫秒；如果把预算放大到
-     * 秒级，4 个线程同时等就把整条分类链路堵死，代价远大于多调一次模型。</li>
-     * <li><b>为什么不能省掉保底：</b>等待只是省钱手段。读到空、Redis 挂了、线程被中断，一律
-     * 落到「自己调模型」，不返回空、不抛异常——工单分类不能因为缓存而失败。</li>
-     * </ul>
      *
      * @param ticket 工单
      * @return 分类结果
@@ -164,8 +212,8 @@ public class TicketClassifyTask {
         }
 
         // 这个返回值是「我是计算者还是等待者」的唯一依据，必须接住
-        boolean locked = classifyCache.tryLock(cacheKey);
-        if (!locked) {
+        Optional<String> marker = classifyCache.tryLock(cacheKey);
+        if (marker.isEmpty()) {
             // 抢不到说明可能有别的线程正在算同一条工单，先等它，别急着重复调模型
             Optional<ClassifyResult> awaited = classifyCache
                 .awaitResult(cacheKey, POLL_MAX_ATTEMPTS, POLL_INTERVAL_MILLIS);
@@ -177,30 +225,27 @@ public class TicketClassifyTask {
             log.info("轮询未等到结果，回退为本次直接调用模型。id={}, key={}", ticket.getId(), cacheKey);
         }
 
-        ClassifyResult result = ticketClassifier.classify(ticket.getTitle(), ticket.getContent());
-
-        // 兜底结果不写缓存：模型可能是临时故障，缓存兜底等于让接下来 5 分钟的同内容工单都用错误分类
-        boolean written = !result.fallback() && classifyCache.put(cacheKey, result);
-
-        // 走完这一步标记还没被结果覆盖，就得自己还回去：持有它却不用，等于把这个 key 锁满 60 秒，
-        // 期间所有同内容工单都抢不到锁、白等一轮轮询预算。两条路径会落到这里：
-        // ① 结果兜底（本来就不写缓存）；② 写缓存失败（put 返回 false，标记没被覆盖）。
-        // 只有抢到锁的线程才有资格释放，没抢到的一方压根没写过标记，删了会误伤真正持锁的线程。
-        if (!written && locked) {
-            classifyCache.releaseMark(cacheKey);
+        try {
+            ClassifyResult result =
+                ticketClassifier.classify(ticket.getTitle(), ticket.getContent());
+            // 等待者可能已自行计算，但只有持有有效标记的计算者可以回填缓存。
+            marker.ifPresent(value -> classifyCache.putIfOwned(cacheKey, value, result));
+            return result;
+        } finally {
+            // Lua 比较标记后才删除，避免超时后删除其他请求的标记或已写入的结果。
+            marker.ifPresent(value -> classifyCache.releaseMark(cacheKey, value));
         }
-        return result;
     }
 
     /**
      * 把分类结果写回工单
      *
-     * @param id     工单 ID
+     * @param ticket 分类开始时读取的工单快照
      * @param result 分类结果
+     * @return 是否写入成功
      */
-    private void writeBack(Long id, ClassifyResult result) {
+    private boolean writeBack(TicketDO ticket, ClassifyResult result) {
         TicketDO update = new TicketDO();
-        update.setId(id);
         update.setCategory(result.category().getValue());
         update.setPriority(result.priority().getValue());
         update.setAiReason(result.reason());
@@ -208,7 +253,27 @@ public class TicketClassifyTask {
         update.setAiCostMs(result.costMs());
         // 记下这条结果是怎么来的，统计接口据此分组算「模型平均耗时」和「缓存平均耗时」
         update.setAiSource(result.source().name());
-        ticketMapper.updateById(update);
+        LambdaUpdateWrapper<TicketDO> condition = new LambdaUpdateWrapper<TicketDO>()
+            .eq(TicketDO::getId, ticket.getId())
+            .eq(TicketDO::getTitle, ticket.getTitle())
+            .eq(TicketDO::getContent, ticket.getContent());
+        if (ticket.getCategory() == null) {
+            condition.isNull(TicketDO::getCategory);
+        } else {
+            condition.eq(TicketDO::getCategory, ticket.getCategory());
+        }
+        if (ticket.getPriority() == null) {
+            condition.isNull(TicketDO::getPriority);
+        } else {
+            condition.eq(TicketDO::getPriority, ticket.getPriority());
+        }
+        if (ticket.getUpdateTime() == null) {
+            condition.isNull(TicketDO::getUpdateTime);
+        } else {
+            condition.eq(TicketDO::getUpdateTime, ticket.getUpdateTime());
+        }
+        // 这是快照比较，不是版本号：同秒内改动后又改回原值仍可能无法检测。
+        return ticketMapper.update(update, condition) == 1;
     }
 
     /**

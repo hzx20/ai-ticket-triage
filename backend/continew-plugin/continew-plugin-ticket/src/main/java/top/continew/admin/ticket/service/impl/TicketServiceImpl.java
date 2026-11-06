@@ -16,9 +16,11 @@
 
 package top.continew.admin.ticket.service.impl;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import top.continew.admin.common.base.service.BaseServiceImpl;
@@ -69,11 +71,17 @@ public class TicketServiceImpl
      * </p>
      */
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public Long create(TicketReq req) {
         if (req.getStatus() == null) {
             req.setStatus(TicketStatusEnum.PENDING.getValue());
         }
         Long id = super.create(req);
+        submitAfterCommit(id);
+        return id;
+    }
+
+    void submitAfterCommit(Long id) {
         if (TransactionSynchronizationManager.isSynchronizationActive()) {
             TransactionSynchronizationManager
                 .registerSynchronization(new TransactionSynchronization() {
@@ -86,7 +94,6 @@ public class TicketServiceImpl
         } else {
             ticketClassifyTask.submit(id);
         }
-        return id;
     }
 
     /**
@@ -100,9 +107,13 @@ public class TicketServiceImpl
     @Override
     public TicketStatisticsResp statistics() {
         long total = this.count();
-        long pending =
-            this.lambdaQuery().eq(TicketDO::getStatus, TicketStatusEnum.PENDING.getValue()).count();
-        long fallback = this.lambdaQuery().eq(TicketDO::getAiFallback, true).count();
+        long pending = baseMapper.selectCount(new LambdaQueryWrapper<TicketDO>()
+            .eq(TicketDO::getStatus, TicketStatusEnum.PENDING.getValue()));
+        // 尚未完成分类的工单不应稀释兜底率；aiCostMs 兼容引入 aiSource 前的历史记录。
+        long classified = baseMapper.selectCount(new LambdaQueryWrapper<TicketDO>()
+            .isNotNull(TicketDO::getAiCostMs));
+        long fallback = baseMapper.selectCount(new LambdaQueryWrapper<TicketDO>()
+            .isNotNull(TicketDO::getAiCostMs).eq(TicketDO::getAiFallback, true));
 
         Map<String, Long> categoryCount = new LinkedHashMap<>();
         List<Map<String, Object>> categoryRows = baseMapper.selectMaps(new QueryWrapper<TicketDO>()
@@ -163,7 +174,7 @@ public class TicketServiceImpl
             .categoryCount(categoryCount)
             .priorityCount(priorityCount)
             .fallbackCount(fallback)
-            .fallbackRate(total == 0 ? 0D : (double) fallback / total)
+            .fallbackRate(classified == 0 ? 0D : (double) fallback / classified)
             .avgCostMs(avgCost)
             .sourceCount(sourceCount)
             .modelAvgCostMs(modelAvgCost)

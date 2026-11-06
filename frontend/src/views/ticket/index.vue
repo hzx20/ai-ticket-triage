@@ -1,7 +1,7 @@
 <template>
   <div class="ticket-page">
     <!-- 统计卡片：这几个数用来判断 AI 分类是否可信 -->
-    <div class="stat-grid">
+    <div v-permission="['ticket:manage:statistics']" class="stat-grid">
       <a-card class="stat-card">
         <a-statistic title="工单总数" :value="stat.total" />
       </a-card>
@@ -10,7 +10,7 @@
       </a-card>
       <a-card class="stat-card">
         <a-statistic
-          title="规则兜底率"
+          title="规则兜底率（已完成分类）"
           :value="stat.fallbackRate * 100"
           :precision="1"
           suffix="%"
@@ -75,7 +75,7 @@
           <a-space>
             <a-button type="primary" @click="handleSearch">查询</a-button>
             <a-button @click="handleReset">重置</a-button>
-            <a-button type="primary" status="success" @click="openCreate">新建工单</a-button>
+            <a-button v-permission="['ticket:manage:create']" type="primary" status="success" @click="openCreate">新建工单</a-button>
           </a-space>
         </a-form-item>
       </a-form>
@@ -84,7 +84,7 @@
     <!-- 列表 -->
     <a-card>
       <a-alert v-if="hasPendingClassify" type="info" class="tip">
-        有工单正在等待 AI 分类，列表已自动刷新。分类是异步执行的，通常 1-3 秒完成。
+        {{ pollingStopped ? '分类仍未完成，自动刷新已暂停，请手动查询或稍后重试。' : '有工单等待分类，当前列表将定期刷新。' }}
       </a-alert>
       <a-table
         :data="list"
@@ -93,11 +93,13 @@
         :bordered="false"
         row-key="id"
         @page-change="handlePageChange"
+        @page-size-change="handlePageSizeChange"
       >
         <template #columns>
           <a-table-column title="标题" data-index="title" :width="220" ellipsis>
             <template #cell="{ record }">
-              <a-link @click="openDetail(record)">{{ record.title }}</a-link>
+              <a-link v-if="canViewDetail" @click="openDetail(record)">{{ record.title }}</a-link>
+              <span v-else>{{ record.title }}</span>
             </template>
           </a-table-column>
           <a-table-column title="分类" :width="110">
@@ -130,20 +132,21 @@
           </a-table-column>
           <a-table-column title="来源" :width="90">
             <template #cell="{ record }">
-              <a-tag v-if="record.aiFallback" color="orange">规则兜底</a-tag>
-              <a-tag v-else-if="record.category" color="arcoblue">模型</a-tag>
-              <span v-else class="muted">—</span>
+              <a-tag v-if="record.aiSource" :color="sourceColor(record.aiSource)">
+                {{ sourceLabel(record.aiSource) }}
+              </a-tag>
+              <span v-else class="muted">{{ record.category ? '未记录' : '—' }}</span>
             </template>
           </a-table-column>
           <a-table-column title="耗时" data-index="aiCostMs" :width="80">
-            <template #cell="{ record }">{{ record.aiCostMs ? `${record.aiCostMs}ms` : '—' }}</template>
+            <template #cell="{ record }">{{ record.aiCostMs != null ? `${record.aiCostMs}ms` : '—' }}</template>
           </a-table-column>
           <a-table-column title="创建时间" data-index="createTime" :width="160" />
           <a-table-column title="操作" :width="180" fixed="right">
             <template #cell="{ record }">
               <a-space>
-                <a-button type="text" size="small" @click="handleClassify(record)">重新分类</a-button>
-                <a-button type="text" size="small" status="danger" @click="handleDelete(record)">删除</a-button>
+                <a-button v-permission="['ticket:manage:classify']" type="text" size="small" @click="handleClassify(record)">重新分类</a-button>
+                <a-button v-permission="['ticket:manage:delete']" type="text" size="small" status="danger" @click="handleDelete(record)">删除</a-button>
               </a-space>
             </template>
           </a-table-column>
@@ -184,9 +187,9 @@
         <a-descriptions-item label="状态">{{ detail.statusName }}</a-descriptions-item>
         <a-descriptions-item label="AI 理由">{{ detail.aiReason || '—' }}</a-descriptions-item>
         <a-descriptions-item label="判定来源">
-          {{ detail.aiFallback ? '关键词规则兜底' : detail.category ? '大模型' : '待分类' }}
+          {{ detail.aiSource ? sourceLabel(detail.aiSource) : detail.category ? '未记录' : '待分类' }}
         </a-descriptions-item>
-        <a-descriptions-item label="耗时">{{ detail.aiCostMs ? `${detail.aiCostMs} ms` : '—' }}</a-descriptions-item>
+        <a-descriptions-item label="耗时">{{ detail.aiCostMs != null ? `${detail.aiCostMs} ms` : '—' }}</a-descriptions-item>
         <a-descriptions-item label="创建时间">{{ detail.createTime }}</a-descriptions-item>
       </a-descriptions>
     </a-drawer>
@@ -194,7 +197,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onActivated, onDeactivated, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { Message, Modal } from '@arco-design/web-vue'
 import {
   classifyTicket,
@@ -205,11 +208,13 @@ import {
   pageTicket,
 } from '@/apis/ticket'
 import type { TicketResp, TicketStatisticsResp } from '@/apis/ticket'
+import has from '@/utils/has'
 
 defineOptions({ name: 'TicketList' })
 
 const loading = ref(false)
 const submitting = ref(false)
+const canViewDetail = computed(() => has.hasPerm('ticket:manage:get'))
 const list = ref<TicketResp[]>([])
 const total = ref(0)
 
@@ -270,8 +275,14 @@ const priorityLabel = (priority: number) => ({ 1: '低', 2: '中', 3: '高' })[p
 const priorityColor = (priority: number) => ({ 1: 'gray', 2: 'blue', 3: 'red' })[priority] || 'gray'
 const statusColor = (status: number) =>
   ({ 1: 'orange', 2: 'arcoblue', 3: 'green', 4: 'gray' })[status] || 'gray'
+const sourceLabel = (source: string) =>
+  ({ MODEL: '模型', RULE: '规则兜底', CACHE: '缓存' } as Record<string, string>)[source] || '未记录'
+const sourceColor = (source: string) =>
+  ({ MODEL: 'arcoblue', RULE: 'orange', CACHE: 'green' } as Record<string, string>)[source] || 'gray'
 
+let listRequestId = 0
 const fetchList = async () => {
+  const requestId = ++listRequestId
   loading.value = true
   try {
     const { data } = await pageTicket({
@@ -279,23 +290,82 @@ const fetchList = async () => {
       page: pagination.current,
       size: pagination.pageSize,
     })
-    list.value = data?.list || []
-    total.value = data?.total || 0
-    pagination.total = total.value
+    if (requestId === listRequestId) {
+      list.value = data?.list || []
+      total.value = data?.total || 0
+      pagination.total = total.value
+    }
   } finally {
-    loading.value = false
+    if (requestId === listRequestId) loading.value = false
   }
 }
 
 const fetchStat = async () => {
+  if (!has.hasPerm('ticket:manage:statistics')) return
   const { data } = await getTicketStatistics()
   if (data) stat.value = data
 }
 
 const refresh = () => Promise.all([fetchList(), fetchStat()])
 
+// 仅在当前页有待分类工单时轮询，并在离开页面或超时后停止。
+const pollingStopped = ref(false)
+let pollTimer: ReturnType<typeof setTimeout> | undefined
+let pollStartedAt = 0
+let pageActive = true
+let wasDeactivated = false
+
+const stopPolling = () => {
+  if (pollTimer) clearTimeout(pollTimer)
+  pollTimer = undefined
+}
+
+const schedulePoll = () => {
+  stopPolling()
+  if (!pageActive || !hasPendingClassify.value) return
+  if (Date.now() - pollStartedAt >= 120_000) {
+    pollingStopped.value = true
+    return
+  }
+  pollTimer = setTimeout(async () => {
+    try {
+      await refresh()
+      schedulePoll()
+    } catch {
+      pollingStopped.value = true
+    }
+  }, 3000)
+}
+
+const startPolling = () => {
+  pollingStopped.value = false
+  pollStartedAt = Date.now()
+  schedulePoll()
+}
+
+watch(() => list.value.filter((item) => !item.category).map((item) => item.id).join(','), startPolling)
+onMounted(refresh)
+onActivated(() => {
+  if (wasDeactivated) {
+    pageActive = true
+    wasDeactivated = false
+    startPolling()
+    refresh()
+  }
+})
+onDeactivated(() => {
+  pageActive = false
+  wasDeactivated = true
+  stopPolling()
+})
+onUnmounted(() => {
+  pageActive = false
+  stopPolling()
+})
+
 const handleSearch = () => {
   pagination.current = 1
+  startPolling()
   refresh()
 }
 
@@ -309,6 +379,12 @@ const handleReset = () => {
 
 const handlePageChange = (page: number) => {
   pagination.current = page
+  fetchList()
+}
+
+const handlePageSizeChange = (size: number) => {
+  pagination.pageSize = size
+  pagination.current = 1
   fetchList()
 }
 
@@ -340,8 +416,6 @@ const handleCreate = async () => {
     resetForm()
     pagination.current = 1
     await refresh()
-    // 分类是异步的，2 秒后再刷一次，通常这时结果已经回来了
-    setTimeout(refresh, 2000)
     return true
   } catch {
     return false
@@ -381,8 +455,6 @@ const openDetail = async (record: TicketResp) => {
   detail.value = data || null
   detailVisible.value = true
 }
-
-onMounted(refresh)
 </script>
 
 <style scoped lang="scss">

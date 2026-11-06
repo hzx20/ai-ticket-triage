@@ -66,7 +66,7 @@
                 {{ categoryLabel(item.category) }}
               </a-tag>
               <span v-if="item.aiFallback" class="fallback">规则兜底</span>
-              <span class="muted">{{ item.aiCostMs ? `${item.aiCostMs} ms` : '待分类' }}</span>
+              <span class="muted">{{ item.aiCostMs != null ? `${item.aiCostMs} ms` : '待分类' }}</span>
               <span class="muted">{{ item.createTime }}</span>
             </div>
           </div>

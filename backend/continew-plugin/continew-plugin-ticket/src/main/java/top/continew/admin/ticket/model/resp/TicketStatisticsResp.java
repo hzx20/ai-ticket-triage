@@ -58,7 +58,7 @@ public class TicketStatisticsResp implements Serializable {
     @Schema(description = "规则兜底数量")
     private Long fallbackCount;
 
-    @Schema(description = "规则兜底占比（0-1）")
+    @Schema(description = "已完成分类的工单中规则兜底占比（0-1）")
     private Double fallbackRate;
 
     @Schema(description = "AI 平均耗时（毫秒，含所有来源）")

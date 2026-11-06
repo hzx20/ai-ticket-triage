@@ -32,6 +32,7 @@ import top.continew.admin.ticket.enums.TicketCategoryEnum;
 import top.continew.admin.ticket.enums.TicketPriorityEnum;
 
 import java.util.Optional;
+import java.util.UUID;
 
 /**
  * 分类缓存 Redis 行为测试
@@ -52,7 +53,9 @@ class ClassifyCacheRedisTest {
 
     private static final String HOST = "127.0.0.1";
 
-    private static final int PORT = 6379;
+    private static final int PORT = Integer.getInteger("ticket.test.redis.port", 6379);
+
+    private final String testNamespace = UUID.randomUUID().toString();
 
     private LettuceConnectionFactory connectionFactory;
 
@@ -92,11 +95,13 @@ class ClassifyCacheRedisTest {
     @DisplayName("写入后能按同一个 key 读出来，且来源被标记为缓存")
     void putThenGetShouldReturnCachedResult() {
         requireRedis();
-        String key = ClassifyCache.buildKey(1L, "登不进去", "整个组卡在加载页，密码输对了也进不去");
+        String key = testKey(1L, "登不进去", "整个组卡在加载页，密码输对了也进不去");
         ClassifyResult original = ClassifyResult
             .ofModel(TicketCategoryEnum.ACCOUNT, TicketPriorityEnum.HIGH, "多人无法登录", 2162);
 
-        classifyCache.put(key, original);
+        assertThat(
+            classifyCache.putIfOwned(key, classifyCache.tryLock(key).orElseThrow(), original))
+            .isTrue();
         Optional<ClassifyResult> cached = classifyCache.get(key);
 
         assertThat(cached).isPresent();
@@ -114,7 +119,7 @@ class ClassifyCacheRedisTest {
     void getMissingKeyShouldReturnEmpty() {
         requireRedis();
 
-        assertThat(classifyCache.get(ClassifyCache.buildKey(999L, "不存在的标题", "不存在的描述")))
+        assertThat(classifyCache.get(testKey(999L, "不存在的标题", "不存在的描述")))
             .isEmpty();
     }
 
@@ -122,10 +127,10 @@ class ClassifyCacheRedisTest {
     @DisplayName("抢占计算权：第一次成功，第二次失败")
     void tryLockShouldOnlySucceedOnce() {
         requireRedis();
-        String key = ClassifyCache.buildKey(2L, "并发测试", "两个线程同时提交");
+        String key = testKey(2L, "并发测试", "两个线程同时提交");
 
-        assertThat(classifyCache.tryLock(key)).isTrue();
-        assertThat(classifyCache.tryLock(key)).isFalse();
+        assertThat(classifyCache.tryLock(key)).isPresent();
+        assertThat(classifyCache.tryLock(key)).isEmpty();
 
         redisTemplate.delete(key);
     }
@@ -134,10 +139,10 @@ class ClassifyCacheRedisTest {
     @DisplayName("抢占标记存在时按未命中处理，不会把标记当成分类结果返回")
     void processingMarkerShouldBeTreatedAsMiss() {
         requireRedis();
-        String key = ClassifyCache.buildKey(3L, "占位测试", "模拟另一个线程正在计算");
+        String key = testKey(3L, "占位测试", "模拟另一个线程正在计算");
         // 先清掉可能残留的同名 key，保证下面的抢占一定成功，避免上一次中断留下的标记让用例假失败
         redisTemplate.delete(key);
-        assertThat(classifyCache.tryLock(key)).isTrue();
+        assertThat(classifyCache.tryLock(key)).isPresent();
 
         assertThat(classifyCache.get(key)).isEmpty();
 
@@ -148,8 +153,8 @@ class ClassifyCacheRedisTest {
     @DisplayName("写入的 key 带 TTL，不会永久驻留")
     void writtenKeyShouldHaveTtl() {
         requireRedis();
-        String key = ClassifyCache.buildKey(4L, "TTL 测试", "确认过期时间已设置");
-        classifyCache.put(key, ClassifyResult
+        String key = testKey(4L, "TTL 测试", "确认过期时间已设置");
+        classifyCache.putIfOwned(key, classifyCache.tryLock(key).orElseThrow(), ClassifyResult
             .ofModel(TicketCategoryEnum.FAULT, TicketPriorityEnum.MEDIUM, "测试", 100));
 
         Long ttl = redisTemplate.getExpire(key);
@@ -163,9 +168,9 @@ class ClassifyCacheRedisTest {
     @DisplayName("统计计数随命中、未命中增长")
     void statsShouldCountHitsAndMisses() {
         requireRedis();
-        String key = ClassifyCache.buildKey(5L, "统计测试", "验证计数器");
+        String key = testKey(5L, "统计测试", "验证计数器");
         classifyCache.get(key);
-        classifyCache.put(key, ClassifyResult
+        classifyCache.putIfOwned(key, classifyCache.tryLock(key).orElseThrow(), ClassifyResult
             .ofModel(TicketCategoryEnum.DATA, TicketPriorityEnum.LOW, "测试", 100));
         classifyCache.get(key);
 
@@ -186,18 +191,71 @@ class ClassifyCacheRedisTest {
         StringRedisTemplate deadTemplate = new StringRedisTemplate(deadFactory);
         deadTemplate.afterPropertiesSet();
         ClassifyCache deadCache = newCache(deadTemplate);
-        String key = ClassifyCache.buildKey(1L, "降级测试", "Redis 挂了");
+        String key = testKey(1L, "降级测试", "Redis 挂了");
 
         try {
             assertThat(deadCache.get(key)).isEmpty();
-            assertThat(deadCache.tryLock(key)).isFalse();
+            assertThat(deadCache.tryLock(key)).isEmpty();
             // 写失败不能抛，否则工单分类会被缓存拖垮
-            deadCache.put(key, ClassifyResult
+            deadCache.putIfOwned(key, "marker", ClassifyResult
                 .ofModel(TicketCategoryEnum.OTHER, TicketPriorityEnum.LOW, "测试", 100));
             assertThat(deadCache.stats().error()).isGreaterThan(0L);
         } finally {
             deadFactory.destroy();
         }
+    }
+
+    @Test
+    @DisplayName("规则兜底不写入缓存，持有者可以释放标记")
+    void fallbackCannotBeCachedAndMarkerCanBeReleased() {
+        requireRedis();
+        String key = testKey(7L, "兜底", "不缓存");
+        try {
+            String marker = classifyCache.tryLock(key).orElseThrow();
+            ClassifyResult fallback = ClassifyResult
+                .ofRule(TicketCategoryEnum.OTHER, TicketPriorityEnum.MEDIUM, "模型不可用", 1);
+
+            assertThat(classifyCache.putIfOwned(key, marker, fallback)).isFalse();
+            assertThat(redisTemplate.opsForValue().get(key)).isEqualTo(marker);
+            classifyCache.releaseMark(key, marker);
+            assertThat(redisTemplate.hasKey(key)).isFalse();
+        } finally {
+            redisTemplate.delete(key);
+        }
+    }
+
+    @Test
+    @DisplayName("标记过期后旧持有者不能覆盖或删除新持有者的标记与结果")
+    void expiredOwnerCannotChangeNewOwnerState() {
+        requireRedis();
+        String key = testKey(8L, "所有权测试", "标记发生过期");
+        redisTemplate.delete(key);
+        try {
+            String oldMarker = classifyCache.tryLock(key).orElseThrow();
+            // 人为删除模拟 TTL 到期，避免测试受真实时钟和调度影响。
+            redisTemplate.delete(key);
+            String newMarker = classifyCache.tryLock(key).orElseThrow();
+            assertThat(newMarker).isNotEqualTo(oldMarker);
+            ClassifyResult oldResult = ClassifyResult
+                .ofModel(TicketCategoryEnum.OTHER, TicketPriorityEnum.LOW, "旧结果", 1);
+            ClassifyResult newResult = ClassifyResult
+                .ofModel(TicketCategoryEnum.ACCOUNT, TicketPriorityEnum.HIGH, "新结果", 1);
+
+            assertThat(classifyCache.putIfOwned(key, oldMarker, oldResult)).isFalse();
+            classifyCache.releaseMark(key, oldMarker);
+            assertThat(redisTemplate.opsForValue().get(key)).isEqualTo(newMarker);
+            assertThat(classifyCache.putIfOwned(key, newMarker, newResult)).isTrue();
+            classifyCache.releaseMark(key, oldMarker);
+            classifyCache.releaseMark(key, newMarker);
+            assertThat(classifyCache.get(key)).get().extracting(ClassifyResult::reason)
+                .isEqualTo("新结果");
+        } finally {
+            redisTemplate.delete(key);
+        }
+    }
+
+    private String testKey(Long tenantId, String title, String content) {
+        return ClassifyCache.buildKey(tenantId, testNamespace + title, content);
     }
 
     /**
