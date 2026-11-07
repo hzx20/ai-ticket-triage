@@ -75,6 +75,7 @@ public class TicketServiceImpl
     @Transactional(rollbackFor = Exception.class)
     public Long create(TicketReq req) {
         require(req.getRevision() == null, "创建工单不应提交版本号");
+        validateStatus(req.getStatus());
         boolean autoClassify = requiresClassification(req);
         Long tenantId = TenantContextHolder.getTenantId();
         if (tenantId == null && TenantContextHolder.isTenantDisabled()) {
@@ -113,6 +114,7 @@ public class TicketServiceImpl
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void update(TicketReq req, Long id) {
+        validateStatus(req.getStatus());
         beforeUpdate(req, id);
         require(req.getRevision() != null, "修改工单需要提供读取到的版本号");
         TicketDO existing = baseMapper.selectById(id);
@@ -163,6 +165,11 @@ public class TicketServiceImpl
             classifyJobs.enqueue(existing.getTenantId(), id, existing.getRevision());
         }
         afterUpdate(req, existing);
+    }
+
+    private static void validateStatus(Integer status) {
+        require(status == null || Arrays.stream(TicketStatusEnum.values())
+            .anyMatch(value -> value.getValue().equals(status)), "工单状态无效");
     }
 
     private static void require(boolean condition, String message) {

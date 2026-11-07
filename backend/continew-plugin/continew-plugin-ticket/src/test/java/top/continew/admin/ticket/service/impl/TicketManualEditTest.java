@@ -69,6 +69,17 @@ class TicketManualEditTest {
     }
 
     @Test
+    void invalidStatusIsRejectedBeforeCreateOrUpdate() {
+        TicketReq req = request(1L);
+        req.setStatus(5);
+        assertThatThrownBy(() -> service.update(req, 9L)).hasMessageContaining("工单状态无效");
+        req.setRevision(null);
+        req.setStatus(0);
+        assertThatThrownBy(() -> service.create(req)).hasMessageContaining("工单状态无效");
+        verify(mapper, never()).selectById(anyLong());
+    }
+
+    @Test
     void staleRevisionFailsWithoutEnqueueing() {
         TicketDO snapshot = ticket(2L);
         when(mapper.selectById(9L)).thenReturn(snapshot);
