@@ -188,7 +188,7 @@
     </a-modal>
 
     <!-- 详情 -->
-    <a-drawer v-model:visible="detailVisible" title="工单详情" :width="480">
+    <a-drawer v-model:visible="detailVisible" title="工单详情" width="min(480px, 100vw)">
       <a-descriptions v-if="detail" :column="1" bordered>
         <a-descriptions-item label="标题">{{ detail.title }}</a-descriptions-item>
         <a-descriptions-item label="内容">{{ detail.content }}</a-descriptions-item>
@@ -199,7 +199,7 @@
         <a-descriptions-item label="判定来源">
           {{ detail.aiSource ? sourceLabel(detail.aiSource) : detail.category ? '未记录' : '待分类' }}
         </a-descriptions-item>
-        <a-descriptions-item label="耗时">{{ detail.aiCostMs != null ? `${detail.aiCostMs} ms` : '—' }}</a-descriptions-item>
+        <a-descriptions-item label="耗时">{{ formatCost(detail.aiCostMs) }}</a-descriptions-item>
         <a-descriptions-item label="创建时间">{{ detail.createTime }}</a-descriptions-item>
         <a-descriptions-item v-if="detail.handleRemark" label="处理备注">{{ detail.handleRemark }}</a-descriptions-item>
       </a-descriptions>
@@ -208,7 +208,7 @@
       </template>
     </a-drawer>
 
-    <a-modal v-model:visible="editVisible" title="修改工单" :ok-loading="updating" :on-before-ok="handleUpdate" :width="560">
+    <a-modal v-model:visible="editVisible" title="修改工单" :ok-loading="updating" :on-before-ok="handleUpdate" width="min(560px, calc(100vw - 24px))">
       <a-form :model="editForm" layout="vertical">
         <a-form-item label="标题" required>
           <a-input v-model="editForm.title" :max-length="100" show-word-limit />

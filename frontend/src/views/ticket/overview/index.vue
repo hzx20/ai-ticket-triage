@@ -74,7 +74,7 @@
                 {{ categoryLabel(item.category) }}
               </a-tag>
               <span v-if="item.aiFallback" class="fallback">规则兜底</span>
-              <span class="muted">{{ item.aiCostMs != null ? `${item.aiCostMs} ms` : '待分类' }}</span>
+              <span class="muted">{{ item.aiCostMs != null ? formatCost(item.aiCostMs) : '待分类' }}</span>
               <span class="muted">{{ item.createTime }}</span>
             </div>
           </div>
@@ -309,7 +309,16 @@ onMounted(loadOverview)
     }
 
     .stat-grid {
-      grid-template-columns: minmax(0, 1fr);
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    .stat-grid :deep(.arco-card-body) {
+      padding: 12px;
+    }
+
+    .stat-value {
+      font-size: 21px;
     }
   }
 
