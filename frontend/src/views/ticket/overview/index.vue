@@ -17,13 +17,16 @@
         </div>
       </div>
       <div class="hero-status">
-        <span class="dot"></span>
-        服务运行中
+        <span class="dot" :class="{ 'dot-error': !dataAvailable }"></span>
+        {{ dataAvailable ? '数据已更新' : '数据暂不可用' }}
       </div>
     </a-card>
 
     <!-- 四个关键指标 -->
-    <div class="stat-grid">
+    <a-alert v-if="!statAvailable" type="info" class="panel">
+      {{ statLoading ? '统计数据加载中…' : canSeeStatistics ? '统计数据暂不可用，请稍后重试。' : '当前账号没有统计数据权限。' }}
+    </a-alert>
+    <div v-else class="stat-grid">
       <a-card :bordered="false">
         <a-statistic title="工单总数" :value="stat.total" />
       </a-card>
@@ -32,7 +35,7 @@
       </a-card>
       <a-card :bordered="false">
         <a-statistic
-          title="缓存命中率"
+          title="缓存命中率（%）"
           :value="stat.cacheHitRate * 100"
           :precision="1"
           suffix="%"
@@ -40,7 +43,8 @@
         />
       </a-card>
       <a-card :bordered="false">
-        <a-statistic title="模型平均耗时" :value="stat.modelAvgCostMs || 0" :precision="0" suffix="ms" />
+        <div class="stat-title">模型平均耗时</div>
+        <div class="stat-value">{{ formatCost(stat.modelAvgCostMs) }}</div>
       </a-card>
     </div>
 
@@ -49,10 +53,14 @@
       <a-col :xs="24" :lg="15">
         <a-card title="最近工单" :bordered="false" class="panel">
           <template #extra>
-            <a class="more-link" @click="router.push('/ticket/list')">查看全部</a>
+            <a-button type="text" size="small" @click="router.push('/ticket/list')">查看全部</a-button>
           </template>
-          <div v-if="recent.length === 0" class="empty">
-            {{ loadFailed ? '没有权限读取工单数据' : '暂无工单，去「工单管理」提交一条试试' }}
+          <div v-if="listFailed" class="empty">
+            工单读取失败，请稍后重试。
+            <a-button type="text" size="small" @click="loadOverview">重试</a-button>
+          </div>
+          <div v-else-if="recent.length === 0" class="empty">
+            {{ listLoading ? '正在加载工单…' : '暂无工单，去「工单管理」提交一条试试' }}
           </div>
           <div v-for="item in recent" :key="item.id" class="recent-item">
             <div class="recent-head">
@@ -74,7 +82,7 @@
       </a-col>
 
       <!-- 右侧：分布 + 缓存效果 -->
-      <a-col :xs="24" :lg="9">
+      <a-col v-if="statAvailable" :xs="24" :lg="9">
         <a-card title="分类分布" :bordered="false" class="panel">
           <div v-for="row in distribution" :key="row.code" class="dist-row">
             <span class="dist-label">{{ row.label }}</span>
@@ -88,13 +96,14 @@
         <a-card title="缓存效果" :bordered="false" class="panel">
           <div class="cost-row">
             <span>调一次模型</span>
-            <b>{{ round(stat.modelAvgCostMs) }} ms</b>
+            <b>{{ formatCost(stat.modelAvgCostMs) }}</b>
           </div>
           <div class="cost-row">
             <span>命中缓存</span>
-            <b class="green">{{ round(stat.cacheAvgCostMs) }} ms</b>
+            <b class="green">{{ stat.cacheHitCount ? formatCost(stat.cacheAvgCostMs) : '—' }}</b>
           </div>
-          <div class="cost-save">单次省下 {{ round(stat.savedCostMs) }} ms</div>
+          <div v-if="stat.cacheHitCount && stat.cacheAvgCostMs != null" class="cost-save">单次省下 {{ formatCost(stat.savedCostMs) }}</div>
+          <div v-else class="cost-tip">暂无可比较的缓存耗时</div>
           <div class="cost-tip">命中率基于当前实例，重启归零；命中时不再产生模型调用费用</div>
         </a-card>
       </a-col>
@@ -105,8 +114,10 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
+import { formatCost } from '../ticket-ui'
 import { getTicketStatistics, pageTicket } from '@/apis/ticket'
 import type { TicketResp, TicketStatisticsResp } from '@/apis/ticket'
+import has from '@/utils/has'
 
 defineOptions({ name: 'TicketOverview' })
 
@@ -132,7 +143,12 @@ const stat = ref<TicketStatisticsResp>({
 })
 
 const recent = ref<TicketResp[]>([])
-const loadFailed = ref(false)
+const listFailed = ref(false)
+const listLoading = ref(true)
+const dataAvailable = ref(false)
+const statAvailable = ref(false)
+const statLoading = ref(true)
+const canSeeStatistics = computed(() => has.hasPerm('ticket:manage:statistics'))
 
 const categories = [
   { code: 'account', label: '账号与权限', color: '#ff7d00' },
@@ -159,8 +175,6 @@ const priorityLabel = (priority?: number) => ({ 1: '低', 2: '中', 3: '高' })[
 const priorityColor = (priority?: number) =>
   ({ 1: 'gray', 2: 'blue', 3: 'red' })[priority || 0] || 'gray'
 
-const round = (value?: number | null) => Math.round(value || 0)
-
 // 分类分布：按总数算百分比，宽度直接用 CSS，不引入图表库
 const distribution = computed(() => {
   const counts = stat.value.categoryCount || {}
@@ -171,19 +185,41 @@ const distribution = computed(() => {
   })
 })
 
-onMounted(async () => {
-  try {
-    const [statRes, pageRes] = await Promise.all([
-      getTicketStatistics(),
-      pageTicket({ page: 1, size: 5 }),
-    ])
-    stat.value = statRes.data
-    recent.value = pageRes.data.list || []
-  } catch {
-    // 演示账号可能没有统计权限，静默降级成空态，不弹错误打断观感
-    loadFailed.value = true
+const loadOverview = async () => {
+  listLoading.value = true
+  listFailed.value = false
+  dataAvailable.value = false
+  const requests: Promise<unknown>[] = [pageTicket({ page: 1, size: 5 })
+    .then(({ data }) => {
+      recent.value = data?.list || []
+      dataAvailable.value = true
+    })
+    .catch(() => {
+      listFailed.value = true
+    })
+    .finally(() => {
+      listLoading.value = false
+    })]
+  if (canSeeStatistics.value) {
+    statLoading.value = true
+    requests.push(getTicketStatistics().then(({ data }) => {
+      if (data) {
+        stat.value = data
+        statAvailable.value = true
+        dataAvailable.value = true
+      }
+    }).catch(() => {
+      statAvailable.value = false
+    }).finally(() => {
+      statLoading.value = false
+    }))
+  } else {
+    statLoading.value = false
   }
-})
+  await Promise.all(requests)
+}
+
+onMounted(loadOverview)
 </script>
 
 <style scoped lang="scss">
@@ -238,11 +274,27 @@ onMounted(async () => {
     box-shadow: 0 0 0 3px rgb(0 180 42 / 15%);
   }
 
+  .dot-error {
+    background: #f53f3f;
+    box-shadow: 0 0 0 3px rgb(245 63 63 / 15%);
+  }
+
   .stat-grid {
     display: grid;
     grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 14px;
     margin-bottom: 14px;
+  }
+
+  .stat-title {
+    color: var(--color-text-2);
+    font-size: 14px;
+  }
+
+  .stat-value {
+    margin-top: 8px;
+    font-size: 26px;
+    line-height: 1.2;
   }
 
   @media (max-width: 1200px) {
@@ -251,13 +303,18 @@ onMounted(async () => {
     }
   }
 
-  .panel {
-    margin-bottom: 14px;
+  @media (max-width: 768px) {
+    .hero :deep(.arco-card-body) {
+      flex-direction: column;
+    }
+
+    .stat-grid {
+      grid-template-columns: minmax(0, 1fr);
+    }
   }
 
-  .more-link {
-    color: rgb(var(--primary-6));
-    cursor: pointer;
+  .panel {
+    margin-bottom: 14px;
   }
 
   .empty {
@@ -291,6 +348,7 @@ onMounted(async () => {
 
   .recent-meta {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: 10px;
     margin-top: 6px;
