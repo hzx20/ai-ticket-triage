@@ -13,6 +13,10 @@ databaseChangeLog:
       file: db/changelog/mysql/plugin/plugin_generator.sql
   - include:
       file: db/changelog/mysql/plugin/plugin_ticket.sql
+  - include:
+      file: db/changelog/mysql/plugin/plugin_ticket_revision.sql
+  - include:
+      file: db/changelog/mysql/plugin/plugin_ticket_job.sql
 # PostgreSQL
 #  - include:
 #      file: db/changelog/postgresql/main_table.sql
@@ -26,3 +30,7 @@ databaseChangeLog:
 #      file: db/changelog/postgresql/plugin/plugin_schedule.sql
 #  - include:
 #      file: db/changelog/postgresql/plugin/plugin_generator.sql
+#  - include:
+#      file: db/changelog/postgresql/plugin/plugin_ticket_revision.sql
+#  - include:
+#      file: db/changelog/postgresql/plugin/plugin_ticket_job.sql

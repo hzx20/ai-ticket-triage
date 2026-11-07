@@ -16,15 +16,17 @@
 
 package top.continew.admin.ticket.service.impl;
 
+import cn.hutool.core.bean.BeanUtil;
+import cn.hutool.core.bean.copier.CopyOptions;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.transaction.support.TransactionSynchronization;
-import org.springframework.transaction.support.TransactionSynchronizationManager;
 import top.continew.admin.common.base.service.BaseServiceImpl;
 import top.continew.admin.ticket.ai.ClassifyCache;
+import top.continew.admin.ticket.enums.TicketCategoryEnum;
 import top.continew.admin.ticket.enums.TicketStatusEnum;
 import top.continew.admin.ticket.mapper.TicketMapper;
 import top.continew.admin.ticket.model.entity.TicketDO;
@@ -33,11 +35,15 @@ import top.continew.admin.ticket.model.req.TicketReq;
 import top.continew.admin.ticket.model.resp.TicketResp;
 import top.continew.admin.ticket.model.resp.TicketStatisticsResp;
 import top.continew.admin.ticket.service.TicketService;
+import top.continew.starter.core.exception.BusinessException;
+import top.continew.starter.extension.tenant.context.TenantContextHolder;
 
 import java.math.BigDecimal;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 /**
  * 工单业务实现
@@ -55,44 +61,113 @@ public class TicketServiceImpl
 
     private final ClassifyCache classifyCache;
 
+    private final TicketClassifyJobRepository classifyJobs;
+
     /**
      * 创建工单
      *
      * <p>
-     * 关键设计：先把工单落库并立刻返回 ID，再异步去做 AI 分类。
-     * 这样用户提交工单不会被模型响应速度拖住——模型慢的时候提交接口依然是毫秒级返回。
-     * 代价是刚提交的那一瞬间分类字段是空的，前端需要刷新一次才能看到结果。
-     * </p>
-     *
-     * <p>
-     * 注意这里必须用事务同步回调提交异步任务：create 方法带 {@code @Transactional}，
-     * 如果直接 submit，异步线程可能在事务提交前就去查库，查不到记录（实测确实出现过
-     * 「工单不存在，跳过分类」）。注册 afterCommit 回调，保证任务一定在数据可见之后才执行。
+     * 工单与分类任务写在同一事务里；调度器扫描已提交的任务，异常退出后可恢复。
+     * 刚提交时分类字段可能为空，前端通过刷新查询任务状态。
      * </p>
      */
     @Override
     @Transactional(rollbackFor = Exception.class)
     public Long create(TicketReq req) {
+        require(req.getRevision() == null, "创建工单不应提交版本号");
+        boolean autoClassify = requiresClassification(req);
+        Long tenantId = TenantContextHolder.getTenantId();
+        if (tenantId == null && TenantContextHolder.isTenantDisabled()) {
+            tenantId = 0L;
+        }
+        require(tenantId != null, "缺少租户上下文，无法创建工单");
         if (req.getStatus() == null) {
             req.setStatus(TicketStatusEnum.PENDING.getValue());
         }
         Long id = super.create(req);
-        submitAfterCommit(id);
+        if (autoClassify) {
+            classifyJobs.enqueue(tenantId, id, 0L);
+        } else {
+            int marked = baseMapper.update(null, new LambdaUpdateWrapper<TicketDO>()
+                .eq(TicketDO::getId, id)
+                .eq(TicketDO::getTenantId, tenantId)
+                .set(TicketDO::getAiSource, "MANUAL"));
+            require(marked == 1, "手工分类来源保存失败");
+        }
         return id;
     }
 
-    void submitAfterCommit(Long id) {
-        if (TransactionSynchronizationManager.isSynchronizationActive()) {
-            TransactionSynchronizationManager
-                .registerSynchronization(new TransactionSynchronization() {
+    boolean requiresClassification(TicketReq req) {
+        boolean hasCategory = req.getCategory() != null;
+        boolean hasPriority = req.getPriority() != null;
+        require(hasCategory == hasPriority, "手工分类和优先级必须同时提供");
+        if (hasCategory) {
+            boolean validCategory = Arrays.stream(TicketCategoryEnum.values())
+                .anyMatch(category -> category.getValue().equals(req.getCategory()));
+            require(validCategory && req.getPriority() >= 1 && req.getPriority() <= 3,
+                "分类或优先级无效");
+        }
+        return !hasCategory;
+    }
 
-                    @Override
-                    public void afterCommit() {
-                        ticketClassifyTask.submit(id);
-                    }
-                });
-        } else {
-            ticketClassifyTask.submit(id);
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void update(TicketReq req, Long id) {
+        beforeUpdate(req, id);
+        require(req.getRevision() != null, "修改工单需要提供读取到的版本号");
+        TicketDO existing = baseMapper.selectById(id);
+        require(existing != null, "工单不存在或已删除");
+        boolean classificationChanged = (req.getCategory() != null
+            && !Objects.equals(req.getCategory(), existing.getCategory()))
+            || (req.getPriority() != null
+                && !Objects.equals(req.getPriority(), existing.getPriority()));
+        boolean textChanged = !Objects.equals(req.getTitle(), existing.getTitle())
+            || !Objects.equals(req.getContent(), existing.getContent());
+        boolean invalidateAi = textChanged && !classificationChanged
+            && !"MANUAL".equals(existing.getAiSource());
+        String category = req.getCategory() == null ? existing.getCategory() : req.getCategory();
+        Integer priority = req.getPriority() == null ? existing.getPriority() : req.getPriority();
+        TicketReq classificationFields = new TicketReq();
+        classificationFields.setCategory(invalidateAi ? null : category);
+        classificationFields.setPriority(invalidateAi ? null : priority);
+        boolean autoClassify = requiresClassification(classificationFields);
+        TicketDO update = new TicketDO();
+        BeanUtil.copyProperties(req, update, CopyOptions.create().ignoreNullValue());
+        update.setRevision(null);
+        LambdaUpdateWrapper<TicketDO> condition = new LambdaUpdateWrapper<TicketDO>()
+            .eq(TicketDO::getId, id)
+            .eq(TicketDO::getTenantId, existing.getTenantId())
+            .eq(TicketDO::getRevision, req.getRevision())
+            .setSql("revision = revision + 1");
+        if (classificationChanged) {
+            condition.set(TicketDO::getAiSource, "MANUAL")
+                .set(TicketDO::getAiReason, null)
+                .set(TicketDO::getAiCostMs, null)
+                .set(TicketDO::getAiFallback, false);
+        } else if (invalidateAi) {
+            update.setCategory(null);
+            update.setPriority(null);
+            condition.set(TicketDO::getCategory, null)
+                .set(TicketDO::getPriority, null)
+                .set(TicketDO::getAiSource, null)
+                .set(TicketDO::getAiReason, null)
+                .set(TicketDO::getAiCostMs, null)
+                .set(TicketDO::getAiFallback, false);
+        }
+        int changed = baseMapper.update(update, condition);
+        require(changed == 1, "工单已被其他操作修改，请刷新后重试");
+        BeanUtil.copyProperties(req, existing, CopyOptions.create().ignoreNullValue());
+        existing.setRevision(req.getRevision() + 1);
+        if (autoClassify) {
+            require(existing.getTenantId() != null, "缺少工单租户，无法创建分类任务");
+            classifyJobs.enqueue(existing.getTenantId(), id, existing.getRevision());
+        }
+        afterUpdate(req, existing);
+    }
+
+    private static void require(boolean condition, String message) {
+        if (!condition) {
+            throw new BusinessException(message);
         }
     }
 
@@ -101,7 +176,28 @@ public class TicketServiceImpl
      */
     @Override
     public void classify(Long id) {
-        ticketClassifyTask.doClassify(id);
+        ticketClassifyTask.classifyManually(id);
+    }
+
+    @Override
+    public Map<Long, String> classificationStatuses(List<Long> ids) {
+        require(ids != null && ids.size() <= 100, "最多查询 100 个工单的分类状态");
+        if (ids.isEmpty()) {
+            return Map.of();
+        }
+        Long tenantId = TenantContextHolder.getTenantId();
+        if (tenantId == null && TenantContextHolder.isTenantDisabled()) {
+            tenantId = 0L;
+        }
+        require(tenantId != null, "缺少租户上下文");
+        List<TicketDO> visible = baseMapper.selectList(new LambdaQueryWrapper<TicketDO>()
+            .eq(TicketDO::getTenantId, tenantId)
+            .in(TicketDO::getId, ids));
+        Map<Long, Long> revisions = new LinkedHashMap<>();
+        for (TicketDO ticket : visible) {
+            revisions.put(ticket.getId(), ticket.getRevision());
+        }
+        return classifyJobs.statuses(tenantId, revisions);
     }
 
     @Override

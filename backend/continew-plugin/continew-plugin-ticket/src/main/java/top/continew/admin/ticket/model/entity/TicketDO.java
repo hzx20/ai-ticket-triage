@@ -44,6 +44,11 @@ public class TicketDO extends TenantBaseDO {
     private static final long serialVersionUID = 1L;
 
     /**
+     * 乐观并发控制版本，人工修改与分类写回成功时递增。
+     */
+    private Long revision;
+
+    /**
      * 标题
      */
     private String title;

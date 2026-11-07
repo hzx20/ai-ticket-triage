@@ -39,6 +39,9 @@ public class TicketResp extends BaseDetailResp {
     @Serial
     private static final long serialVersionUID = 1L;
 
+    @Schema(description = "工单版本，修改时须原样提交")
+    private Long revision;
+
     @Schema(description = "标题")
     private String title;
 

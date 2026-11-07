@@ -23,7 +23,7 @@ export function createTicket(data: T.TicketReq) {
 }
 
 /** @desc 修改工单 */
-export function updateTicket(id: string, data: T.TicketReq) {
+export function updateTicket(id: string, data: T.TicketUpdateReq) {
   return http.put(`${BASE_URL}/${id}`, data)
 }
 
@@ -35,6 +35,11 @@ export function deleteTicket(id: string) {
 /** @desc 对工单重新分类（同步，返回时结果已写回） */
 export function classifyTicket(id: string) {
   return http.post(`${BASE_URL}/${id}/classify`)
+}
+
+/** @desc 查询当前可见工单的分类任务状态（最多 100 条） */
+export function getClassificationStatuses(ids: string[]) {
+  return http.get<Record<string, string>>(`${BASE_URL}/classification-status`, { ids: ids.join(',') })
 }
 
 /** @desc 工单统计 */

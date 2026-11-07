@@ -83,6 +83,9 @@
 
     <!-- 列表 -->
     <a-card>
+      <a-alert v-if="hasFailedClassify" type="error" class="tip">
+        有工单自动分类失败，可由有权限的用户手动重新分类。
+      </a-alert>
       <a-alert v-if="hasPendingClassify" type="info" class="tip">
         {{ pollingStopped ? '分类仍未完成，自动刷新已暂停，请手动查询或稍后重试。' : '有工单等待分类，当前列表将定期刷新。' }}
       </a-alert>
@@ -107,7 +110,9 @@
               <a-tag v-if="record.category" :color="categoryColor(record.category)">
                 {{ record.categoryName }}
               </a-tag>
-              <span v-else class="muted">分类中…</span>
+              <a-tag v-else-if="classificationStatuses[record.id] === 'FAILED'" color="red">分类失败</a-tag>
+              <span v-else-if="isClassifying(record.id)" class="muted">分类中…</span>
+              <span v-else class="muted">{{ classificationStatuses[record.id] === 'UNKNOWN' ? '状态未知' : '状态待确认' }}</span>
             </template>
           </a-table-column>
           <a-table-column title="优先级" :width="90">
@@ -203,6 +208,7 @@ import {
   classifyTicket,
   createTicket,
   deleteTicket,
+  getClassificationStatuses,
   getTicket,
   getTicketStatistics,
   pageTicket,
@@ -216,6 +222,7 @@ const loading = ref(false)
 const submitting = ref(false)
 const canViewDetail = computed(() => has.hasPerm('ticket:manage:get'))
 const list = ref<TicketResp[]>([])
+const classificationStatuses = ref<Record<string, string>>({})
 const total = ref(0)
 
 const query = reactive({
@@ -257,7 +264,11 @@ const stat = ref<TicketStatisticsResp>({
 })
 
 // 还有工单没分类完时给出提示
-const hasPendingClassify = computed(() => list.value.some((item) => !item.category))
+const isClassifying = (id: string) => ['PENDING', 'RUNNING'].includes(classificationStatuses.value[id])
+// 状态查询与列表查询之间任务可能刚好完成，缺失状态时继续刷新列表，避免停留在旧结果。
+const needsClassificationRefresh = (id: string) => !classificationStatuses.value[id] || isClassifying(id)
+const hasPendingClassify = computed(() => list.value.some((item) => !item.category && needsClassificationRefresh(item.id)))
+const hasFailedClassify = computed(() => list.value.some((item) => !item.category && classificationStatuses.value[item.id] === 'FAILED'))
 
 const categoryColor = (category: string) => {
   const map: Record<string, string> = {
@@ -276,9 +287,9 @@ const priorityColor = (priority: number) => ({ 1: 'gray', 2: 'blue', 3: 'red' })
 const statusColor = (status: number) =>
   ({ 1: 'orange', 2: 'arcoblue', 3: 'green', 4: 'gray' })[status] || 'gray'
 const sourceLabel = (source: string) =>
-  ({ MODEL: '模型', RULE: '规则兜底', CACHE: '缓存' } as Record<string, string>)[source] || '未记录'
+  ({ MODEL: '模型', RULE: '规则兜底', CACHE: '缓存', MANUAL: '人工' } as Record<string, string>)[source] || '未记录'
 const sourceColor = (source: string) =>
-  ({ MODEL: 'arcoblue', RULE: 'orange', CACHE: 'green' } as Record<string, string>)[source] || 'gray'
+  ({ MODEL: 'arcoblue', RULE: 'orange', CACHE: 'green', MANUAL: 'purple' } as Record<string, string>)[source] || 'gray'
 
 let listRequestId = 0
 const fetchList = async () => {
@@ -290,8 +301,20 @@ const fetchList = async () => {
       page: pagination.current,
       size: pagination.pageSize,
     })
+    const rows = data?.list || []
+    const pendingIds = rows.filter((item) => !item.category).map((item) => item.id)
+    let statuses: Record<string, string> = {}
+    try {
+      for (let offset = 0; offset < pendingIds.length; offset += 100) {
+        const response = await getClassificationStatuses(pendingIds.slice(offset, offset + 100))
+        Object.assign(statuses, response.data || {})
+      }
+    } catch {
+      statuses = Object.fromEntries(pendingIds.map((id) => [id, 'UNKNOWN']))
+    }
     if (requestId === listRequestId) {
-      list.value = data?.list || []
+      classificationStatuses.value = statuses
+      list.value = rows
       total.value = data?.total || 0
       pagination.total = total.value
     }
@@ -343,7 +366,7 @@ const startPolling = () => {
   schedulePoll()
 }
 
-watch(() => list.value.filter((item) => !item.category).map((item) => item.id).join(','), startPolling)
+watch(() => list.value.filter((item) => !item.category && needsClassificationRefresh(item.id)).map((item) => item.id).join(','), startPolling)
 onMounted(refresh)
 onActivated(() => {
   if (wasDeactivated) {
@@ -426,10 +449,10 @@ const handleCreate = async () => {
 
 // 重新分类
 const handleClassify = async (record: TicketResp) => {
-  Message.info('正在调用模型重新分类…')
+  Message.info('正在重新分类…')
   await classifyTicket(record.id)
-  Message.success('分类已更新')
-  refresh()
+  await refresh()
+  Message.success('分类已完成，请查看判定来源')
 }
 
 // 删除

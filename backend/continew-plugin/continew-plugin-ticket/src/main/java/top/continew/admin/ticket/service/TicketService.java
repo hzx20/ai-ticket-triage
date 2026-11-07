@@ -24,6 +24,9 @@ import top.continew.admin.ticket.model.resp.TicketResp;
 import top.continew.admin.ticket.model.resp.TicketStatisticsResp;
 import top.continew.starter.data.service.IService;
 
+import java.util.List;
+import java.util.Map;
+
 /**
  * 工单业务接口
  *
@@ -39,6 +42,14 @@ public interface TicketService
      * @param id 工单 ID
      */
     void classify(Long id);
+
+    /**
+     * 获取可见工单当前版本的分类任务状态。
+     *
+     * @param ids 工单 ID，最多 100 个
+     * @return 工单 ID 到任务状态的映射
+     */
+    Map<Long, String> classificationStatuses(List<Long> ids);
 
     /**
      * 工单统计

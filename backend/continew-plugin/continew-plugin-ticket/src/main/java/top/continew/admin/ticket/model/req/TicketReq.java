@@ -42,6 +42,9 @@ public class TicketReq implements Serializable {
     @Serial
     private static final long serialVersionUID = 1L;
 
+    @Schema(description = "修改时填写读取到的工单版本；创建时不填写")
+    private Long revision;
+
     /**
      * 标题
      */

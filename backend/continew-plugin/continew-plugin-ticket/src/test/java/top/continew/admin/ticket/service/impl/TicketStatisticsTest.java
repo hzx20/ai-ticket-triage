@@ -56,7 +56,8 @@ class TicketStatisticsTest {
         when(mapper.selectMaps(any())).thenReturn(List.of());
         ClassifyCache cache = mock(ClassifyCache.class);
         when(cache.stats()).thenReturn(new ClassifyCache.Stats(0, 0, 0, 0, 0));
-        TicketServiceImpl service = new TicketServiceImpl(mock(TicketClassifyTask.class), cache);
+        TicketServiceImpl service = new TicketServiceImpl(mock(TicketClassifyTask.class), cache,
+            mock(TicketClassifyJobRepository.class));
         ReflectionTestUtils.setField(service, "baseMapper", mapper);
 
         TicketStatisticsResp result = service.statistics();

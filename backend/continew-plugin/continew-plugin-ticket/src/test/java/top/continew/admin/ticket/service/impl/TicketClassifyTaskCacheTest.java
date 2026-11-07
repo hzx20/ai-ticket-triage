@@ -16,6 +16,7 @@
 
 package top.continew.admin.ticket.service.impl;
 
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
@@ -26,7 +27,6 @@ import static org.mockito.Mockito.when;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.springframework.transaction.PlatformTransactionManager;
 import top.continew.admin.ticket.ai.ClassifyCache;
 import top.continew.admin.ticket.ai.ClassifyResult;
 import top.continew.admin.ticket.ai.TicketClassifier;
@@ -83,7 +83,7 @@ class TicketClassifyTaskCacheTest {
     @Test
     @DisplayName("等待者未等到结果时可自行分类，但不能写入或删除其他人的标记")
     void waitingCallerCannotWriteOrRelease() {
-        newTask().doClassify(TICKET_ID);
+        newTask().classifyWithCache(ticketMapper.selectById(TICKET_ID));
 
         verify(ticketClassifier).classify(TITLE, CONTENT);
         verify(classifyCache, never()).putIfOwned(anyString(), anyString(),
@@ -96,7 +96,7 @@ class TicketClassifyTaskCacheTest {
     void waitingCallerReusesResult() {
         when(classifyCache.awaitResult(cacheKey, 3, 50L)).thenReturn(Optional.of(result));
 
-        newTask().doClassify(TICKET_ID);
+        newTask().classifyWithCache(ticketMapper.selectById(TICKET_ID));
 
         verify(ticketClassifier, never()).classify(anyString(), anyString());
         verify(classifyCache, never()).releaseMark(anyString(), anyString());
@@ -107,7 +107,7 @@ class TicketClassifyTaskCacheTest {
     void ownerWritesAndReleases() {
         when(classifyCache.tryLock(cacheKey)).thenReturn(Optional.of(MARKER));
 
-        newTask().doClassify(TICKET_ID);
+        newTask().classifyWithCache(ticketMapper.selectById(TICKET_ID));
 
         verify(classifyCache).putIfOwned(cacheKey, MARKER, result);
         verify(classifyCache).releaseMark(cacheKey, MARKER);
@@ -119,7 +119,8 @@ class TicketClassifyTaskCacheTest {
         when(classifyCache.tryLock(cacheKey)).thenReturn(Optional.of(MARKER));
         when(ticketClassifier.classify(TITLE, CONTENT)).thenThrow(new IllegalStateException("失败"));
 
-        newTask().doClassify(TICKET_ID);
+        assertThatThrownBy(() -> newTask().classifyWithCache(ticketMapper.selectById(TICKET_ID)))
+            .isInstanceOf(IllegalStateException.class);
 
         verify(classifyCache).releaseMark(cacheKey, MARKER);
         verify(classifyCache, never()).putIfOwned(anyString(), anyString(),
@@ -127,7 +128,6 @@ class TicketClassifyTaskCacheTest {
     }
 
     private TicketClassifyTask newTask() {
-        return new TicketClassifyTask(ticketMapper, ticketClassifier, classifyCache,
-            mock(PlatformTransactionManager.class));
+        return new TicketClassifyTask(ticketMapper, ticketClassifier, classifyCache);
     }
 }

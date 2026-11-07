@@ -17,6 +17,7 @@
 package top.continew.admin.ticket.service.impl;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -29,7 +30,6 @@ import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
-import org.springframework.transaction.PlatformTransactionManager;
 import top.continew.admin.ticket.ai.ClassifyCache;
 import top.continew.admin.ticket.ai.ClassifyResult;
 import top.continew.admin.ticket.ai.TicketClassifier;
@@ -59,6 +59,7 @@ class TicketClassifyTaskWriteBackTest {
         TicketDO snapshot = new TicketDO();
         snapshot.setId(21L);
         snapshot.setTenantId(3L);
+        snapshot.setRevision(7L);
         snapshot.setTitle("原始标题");
         snapshot.setContent("原始内容");
         snapshot.setCategory("data");
@@ -73,13 +74,8 @@ class TicketClassifyTaskWriteBackTest {
 
         // 模拟查询之后用户已经修改，数据库的条件 UPDATE 返回 0。
         when(mapper.update(any(TicketDO.class), any())).thenReturn(0);
-        TicketClassifyTask task = new TicketClassifyTask(mapper, classifier, cache,
-            mock(PlatformTransactionManager.class));
-        try {
-            task.doClassify(21L);
-        } finally {
-            task.shutdown();
-        }
+        TicketClassifyTask task = new TicketClassifyTask(mapper, classifier, cache);
+        assertThatThrownBy(() -> task.classifyManually(21L)).isInstanceOf(RuntimeException.class);
 
         @SuppressWarnings("unchecked")
         ArgumentCaptor<LambdaUpdateWrapper<TicketDO>> condition = ArgumentCaptor
@@ -87,8 +83,7 @@ class TicketClassifyTaskWriteBackTest {
         verify(mapper).update(any(TicketDO.class), condition.capture());
         String sql = condition.getValue().getSqlSegment();
         Map<String, Object> values = condition.getValue().getParamNameValuePairs();
-        assertThat(sql).contains("id =", "title =", "content =", "category =", "priority =",
-            "update_time IS NULL");
-        assertThat(values.values()).contains(21L, "原始标题", "原始内容", "data", 2);
+        assertThat(sql).contains("id =", "tenant_id =", "revision =");
+        assertThat(values.values()).contains(21L, 3L, 7L);
     }
 }

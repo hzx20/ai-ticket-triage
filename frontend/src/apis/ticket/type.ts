@@ -1,6 +1,8 @@
 /** 工单响应 */
 export interface TicketResp {
   id: string
+  /** 更新时提交读取到的版本，避免覆盖其他人的修改 */
+  revision: number | string
   title: string
   content: string
   /** 分类编码：account / fault / feature / data / consult / other */
@@ -19,7 +21,7 @@ export interface TicketResp {
   /** 是否走了关键词规则兜底 */
   aiFallback?: boolean
   /** 判定来源：模型、规则或缓存；历史记录可能为空 */
-  aiSource?: 'MODEL' | 'RULE' | 'CACHE' | null
+  aiSource?: 'MODEL' | 'RULE' | 'CACHE' | 'MANUAL' | null
   /** AI 调用耗时（毫秒） */
   aiCostMs?: number
   createUserString?: string
@@ -48,6 +50,9 @@ export interface TicketReq {
   assigneeId?: string
   handleRemark?: string
 }
+
+/** 修改时必须携带读取工单时的版本 */
+export type TicketUpdateReq = TicketReq & { revision: number | string }
 
 /** 工单统计 */
 export interface TicketStatisticsResp {

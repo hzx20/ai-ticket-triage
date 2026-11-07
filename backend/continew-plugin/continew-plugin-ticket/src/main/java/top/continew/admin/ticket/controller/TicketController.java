@@ -22,6 +22,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import top.continew.admin.common.base.controller.BaseController;
 import top.continew.admin.ticket.model.query.TicketQuery;
@@ -31,6 +32,9 @@ import top.continew.admin.ticket.model.resp.TicketStatisticsResp;
 import top.continew.admin.ticket.service.TicketService;
 import top.continew.starter.extension.crud.annotation.CrudRequestMapping;
 import top.continew.starter.extension.crud.enums.Api;
+
+import java.util.List;
+import java.util.Map;
 
 /**
  * 工单管理 API
@@ -58,6 +62,13 @@ public class TicketController
     @PostMapping("/{id}/classify")
     public void classify(@PathVariable Long id) {
         baseService.classify(id);
+    }
+
+    @Operation(summary = "批量查询分类任务状态")
+    @SaCheckPermission("ticket:manage:list")
+    @GetMapping("/classification-status")
+    public Map<Long, String> classificationStatuses(@RequestParam List<Long> ids) {
+        return baseService.classificationStatuses(ids);
     }
 
     @Operation(summary = "工单统计", description = "各分类、各优先级数量，以及模型兜底率与平均耗时")
