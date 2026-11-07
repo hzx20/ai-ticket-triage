@@ -14,6 +14,32 @@
 4. **缓存**：缓存 key 包含租户 ID 和工单内容摘要。持有唯一随机标记的计算者通过 Redis Lua 原子比较并写入或释放；规则兜底结果不缓存。抢不到标记的请求短轮询，等不到就自行调用模型，因此缓存是优化，不是严格的并发去重保证。Redis 不可用时仍可直接分类。
 5. **租户与访问边界**：调度器跨租户扫描只读取任务 ID 和租户 ID，执行前检查租户并恢复该任务的租户上下文；任务操作显式限制租户。**同一租户内的工单按当前项目权限配置共享**，不要把行级租户隔离描述成“同租户每个人只能看自己的工单”。
 
+## 实际候选查询与认领
+
+当前启用的 `db.changelog-master.yaml` 包含 MySQL 任务表变更，生产配置也使用 MySQL。以下是 `TicketClassifyJobRepository.ready` 中 Java 字符串拼接后的实际 SQL，参数依次为最大尝试次数 `10` 和扫描上限（调度器传入 `32`）：
+
+```sql
+SELECT id, tenant_id FROM ticket_classify_job
+WHERE attempts < ? AND
+((status = 'PENDING' AND next_run_at <= CURRENT_TIMESTAMP(3)) OR
+(status = 'RUNNING' AND lease_until <= CURRENT_TIMESTAMP(3)))
+ORDER BY created_at LIMIT ?
+```
+
+首次入队的 `PENDING` 任务不写 `lease_until`、`lease_token`，建表时这两列允许 `NULL`；重试转回 `PENDING` 时也会清空它们。`PENDING` 分支只检查 `next_run_at`，因此租约为 `NULL` 不影响入选。`RUNNING` 分支只接受 `lease_until <= CURRENT_TIMESTAMP(3)`，租约时间为 `NULL` 不满足该条件。
+
+扫描只是取得候选 ID 和租户 ID，没有在此使用 `FOR UPDATE` 或 `SKIP LOCKED`。工作线程用下面的实际条件更新争取所有权；两边候选条件一致，只有更新影响一行才算认领成功。`?` 依次为新 token、租约到期时间、任务 ID、租户 ID、最大尝试次数 `10`：
+
+```sql
+UPDATE ticket_classify_job SET status = 'RUNNING',
+lease_token = ?, lease_until = ?, attempts = attempts + 1,
+updated_at = CURRENT_TIMESTAMP(3) WHERE id = ? AND tenant_id = ? AND attempts < ? AND
+((status = 'PENDING' AND next_run_at <= CURRENT_TIMESTAMP(3)) OR
+(status = 'RUNNING' AND lease_until <= CURRENT_TIMESTAMP(3)))
+```
+
+到期时若 `attempts < 10`，处理中的任务可再次进入候选；若已认领 10 次，调度器先用 `failExhausted` 将已过期的 `RUNNING` 任务置为 `FAILED`，不会再交给 `ready`。结果写回前才在短事务里执行带 token、状态和未过期租约条件的 `SELECT ... FOR UPDATE`。源码位置：`backend/continew-plugin/continew-plugin-ticket/src/main/java/top/continew/admin/ticket/service/impl/TicketClassifyJobRepository.java` 的 `ready`、`claim`、`lockValid`、`failExhausted`，以及 `TicketClassifyJobRunner.dispatch`。
+
 ## 为什么这样设计
 
 - 仅用 `afterCommit` 或内存队列，能避开部分事务可见性问题，却无法在提交后、入队前或进程退出后恢复任务；数据库持久任务保留了待处理记录。
