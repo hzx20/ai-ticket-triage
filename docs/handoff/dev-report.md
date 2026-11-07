@@ -27,7 +27,7 @@ mvn -o -pl continew-server -am test "-Dtest=TicketManualEditTest,TicketApplicati
 
 ## 未覆盖及剩余风险
 
-- 模型未连接真实 DeepSeek；分类准确率、token 用量与成本没有在本轮复测。MockMvc 不等于真实浏览器或线上部署验证。
+- 已对真实 DeepSeek 运行一轮 30 条自建样本评测，结果和局限见 `reports/ticket-eval-2026-11-07.md`；没有记录 token 用量及实际费用。MockMvc 不等于真实浏览器或线上部署验证。
 - 测试通过构造过期租约并再次扫描验证恢复路径，没有通过强制杀进程验证完整进程重启，也没有证明多实例高并发的全部故障情形。
 - 目标部署仍需 Redis 7、MySQL 及正确的生产密钥/HTTPS 配置；页面或线上演示是否已部署到本次代码尚未验证。
 - 工单与任务记录由异步调度器处理；达到重试上限后需用户按页面提示手动重新分类。角色级个人/部门数据权限和独立数据库租户模式不在当前实现范围。

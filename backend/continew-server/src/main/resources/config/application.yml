@@ -405,7 +405,7 @@ spring.ai.openai:
     options:
       # 注意：deepseek-chat 这个模型名已于 2026-07-24 下线，现在应使用 deepseek-flash
       model: ${DEEPSEEK_MODEL:deepseek-flash}
-      # 分类任务要的是稳定复现，不需要发散，温度调低
+      # DeepSeek 默认思考模式会忽略 temperature；其他兼容服务的行为可能不同
       temperature: 0.1
 
 # 模型是外部网络调用，必须设超时，否则线程会一直挂着等
